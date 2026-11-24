@@ -1,0 +1,15 @@
+Manifest.toml
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+/docs/build/
+# Generated outputs
+*.vts
+*.vtu
+*.vtk
+*.pvd
+*.jld2
+.DS_Store
+# Downloaded raw data and generated model outputs
+/data/raw/
+/data/output/

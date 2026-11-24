@@ -1,0 +1,25 @@
+name = "GeoValaisWallis3D"
+uuid = "f2d2fddd-0f76-4095-9ef6-bbc86125452b"
+version = "0.1.0"
+authors = ["tduretz <duretz@uni-frankfurt.de>"]
+
+[deps]
+ArchGDAL = "c9ce4bd3-c3d5-55b8-8973-c0e20141b8c3"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
+GeophysicalModelGenerator = "3700c31b-fa53-48a6-808a-ef22d5a84742"
+Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
+
+[compat]
+ArchGDAL = "0.10"
+DelimitedFiles = "1"
+Downloads = "1"
+GeophysicalModelGenerator = "0.10"
+Reexport = "1"
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
