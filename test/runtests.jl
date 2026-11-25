@@ -55,6 +55,26 @@ using Test
         @test morcles_unit_at(m, 2600.0, 1112.1, 0.03) == 0
     end
 
+    @testset "model blocks" begin
+        # synthetic maps: a block of columns must equal that part of the whole model
+        x = collect(2590.0:0.5:2594.5); y = collect(1115.0:0.5:1118.5); z = [-60.0:5.0:-5.0; -4.0:1.0:-1.0; -0.5:0.1:3.0]
+        topo = [1.0 + 0.3 * sin(i) + 0.2 * cos(j) for i in eachindex(x), j in eachindex(y)]
+        f(v) = fill(v, length(x), length(y))
+        I = (; topo, bed = topo .- 0.4, quat_thickness = f(0.4), base_cs = f(-3.0), conrad = f(-20.0), moho_eu = f(-40.0),
+             moho_ad = [isodd(i) ? NaN : -30.0 for i in eachindex(x), j in eachindex(y)],
+             rho_cs = f(2600.0), rho_uc = f(2700.0), rho_lc = f(2900.0), rho_lm = f(3300.0))
+        maps = (; x, y, z, interfaces = I, morcles = nothing)
+        whole = valais_model_block(maps; air_value = 0)
+        @test size(whole.Vp) == (length(x), length(y), length(z))
+        @test all(p -> p in whole.Phases, (PHASES.air, PHASES.quaternary, PHASES.consolidated_sediments, PHASES.upper_crust,
+                                           PHASES.lower_crust, PHASES.mantle, PHASES.adriatic_mantle))
+        @test all(iszero, whole.Vs[whole.Phases .== PHASES.air])
+        for (ix, iy) in ((1:4, 1:8), (3:10, 2:5), (10:10, 8:8))
+            part = valais_model_block(maps, ix, iy; air_value = 0)
+            @test all(k -> part[k] == whole[k][ix, iy, :], keys(whole))
+        end
+    end
+
     # Downloads data (swisstopo, GFZ, figshare, Spada et al.) -> opt-in: GVW_ONLINE_TESTS=true
     if get(ENV, "GVW_ONLINE_TESTS", "false") == "true"
         @testset "online: build model" begin
@@ -64,6 +84,10 @@ using Test
             @test PHASES.quaternary in P && PHASES.mantle in P
             @test maximum(res.surface.fields.QuaternaryThickness) > 0.3      # Rhône valley fill near Sion
             @test minimum(res.model.fields.Vs[P .== PHASES.quaternary]) < 0.5
+            # a block built on its own = that part of the model
+            maps = valais_model_maps(r; dx = 0.5, dz_fine = 0.05, morcles = false)
+            part = valais_model_block(maps, 5:12, 3:20)
+            @test maps.z == res.z && part.Phases == P[5:12, 3:20, :] && isequal(part.Vs, res.model.fields.Vs[5:12, 3:20, :])
         end
     end
 end

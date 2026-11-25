@@ -41,64 +41,51 @@ function model_interfaces(x, y, topo, tmud)
 end
 
 """
-    build_valais_model(r = valais_region(); dx = 0.25, dx_surface = 0.1, z = nothing,
-                       fine_band = :auto, dz_fine = 0.025, dz_max_up = 0.25, dz_max_down = 2.0,
-                       growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true,
-                       temperature = true, air_value = NaN, outdir = datadir("output"), write = true)
+    valais_model_maps(r = valais_region(); dx = 0.25, z = nothing, fine_band = :auto, dz_fine = 0.025,
+                      dz_max_up = 0.25, dz_max_down = 2.0, growth = 1.08, morcles = true) -> NamedTuple
 
-Build the Valais 3D geological / seismic velocity model on a rectilinear Cartesian LV95 grid (km):
-uniform horizontal spacing `dx`, vertical levels refined (`dz_fine`) in the elevation band of the
-Quaternary valley fill (see [`refined_levels`](@ref); `fine_band = :auto` derives it from
-swissBEDROCK, or pass a tuple `(zlow, zhigh)`; pass `z` to give the levels explicitly).
+The 3D model as maps: the grid axes `x`, `y` (LV95, km; uniform spacing `dx`) and `z` (vertical levels, see
+[`refined_levels`](@ref); `fine_band = :auto` derives the refined band from swissBEDROCK, or pass a tuple
+`(zlow, zhigh)`; pass `z` to give the levels explicitly), the layer `interfaces` on `x`, `y`
+([`model_interfaces`](@ref)) and the Morcles voxel model (`morcles`, or `nothing`).
 
-Data: swissALTIRegio topography, swissBEDROCK Quaternary thickness, swisstopo tectonic map (surface),
-3D-ALPS layers & densities, Spada et al. (2013) Moho, 3D-ALPS-TR temperature, Morcles nappe model.
-
-Returns `(; surface, model, z, tecto)`. `model` is a `CartData` with fields `Phases` (see
-[`PHASES`](@ref)), `Vp`, `Vs` (km/s), `Rho` (kg/m³), `Temperature` (°C) and `MorclesUnit`
-(index into [`MORCLES_UNITS`](@ref), 0 outside). In air cells (`Phases == 0`) Vp, Vs, Rho and
-Temperature are set to `air_value` (default `NaN`, which ParaView can render transparent via the
-color map's "NaN Opacity"; use e.g. `air_value = 0` for solvers that do not accept NaN).
+This is all that is needed to fill any part of the 3D grid with [`valais_model_block`](@ref); it is small (2D), so every
+process of a parallel run can hold it.
 """
-function build_valais_model(r::ValaisRegion = valais_region(); dx = 0.25, dx_surface = 0.1, z = nothing,
-                            fine_band = :auto, dz_fine = 0.025, dz_max_up = 0.25, dz_max_down = 2.0,
-                            growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true,
-                            temperature = true, air_value = NaN, outdir = datadir("output"), write = true)
-    # ---------------- surface (high resolution) ----------------
-    xs, ys, topo_s = fetch_topography(r; dx = dx_surface)
-    _, _, bem_s, tmud_s = fetch_swissbedrock(r; dx = dx_surface)
-    tecto = tectonic_map_on_grid(xs, ys)
-    I_s = model_interfaces(xs, ys, topo_s, tmud_s)
-    Xs, Ys, Zs = xyz_grid(xs, ys, 0.0)
-    Zs[:, :, 1] .= topo_s
-    s3(a) = reshape(a, size(a)..., 1)
-    surface = CartData(Xs, Ys, Zs, (
-        Topography = s3(topo_s), BedrockElevation = s3(bem_s), QuaternaryThickness = s3(tmud_s),
-        TectoLevel1 = s3(tecto.level1), TectoLevel2 = s3(tecto.level2), TectoUnit = s3(tecto.unit),
-        QuaternaryMap = s3(Int.(tecto.quaternary)),
-        BaseConsolidatedSediments = s3(I_s.base_cs), UpperLowerCrust = s3(I_s.conrad),
-        MohoEuropean = s3(I_s.moho_eu), MohoAdriatic = s3(I_s.moho_ad),
-    ))
-
-    # ---------------- 3D grid ----------------
-    xg, yg, topo = fetch_topography(r; dx = dx)
+function valais_model_maps(r::ValaisRegion = valais_region(); dx = 0.25, z = nothing, fine_band = :auto, dz_fine = 0.025,
+                           dz_max_up = 0.25, dz_max_down = 2.0, growth = 1.08, morcles = true)
+    x, y, topo = fetch_topography(r; dx = dx)
     _, _, _, tmud = fetch_swissbedrock(r; dx = dx)
-    I = model_interfaces(xg, yg, topo, tmud)
+    interfaces = model_interfaces(x, y, topo, tmud)
     if z === nothing
         band = fine_band === :auto ? fine_band_from_bedrock(topo, tmud) : fine_band
         z = refined_levels(r.z[1], r.z[2]; fine = band, dz_fine, dz_max_up, dz_max_down, growth)
         @info "Vertical grid: $(length(z)) levels, dz = $(dz_fine) km in [$(round(band[1], digits=3)), $(round(band[2], digits=3))] km"
     end
-    nx, ny, nz = length(xg), length(yg), length(z)
-    @info "3D grid: $(nx) × $(ny) × $(nz) = $(round(nx*ny*nz/1e6, digits=1)) M cells"
+    return (; x, y, z, interfaces, morcles = morcles ? read_morcles() : nothing)
+end
 
-    mm = morcles ? read_morcles() : nothing
+"""
+    valais_model_block(maps, ix = eachindex(maps.x), iy = eachindex(maps.y); velocities = DEFAULT_VELOCITIES,
+                       temperature = false, air_value = NaN) -> NamedTuple
+
+Fill the columns `maps.x[ix]`, `maps.y[iy]` (index ranges) of the 3D model of [`valais_model_maps`](@ref) over all
+levels `maps.z`: arrays `Phases`, `Vp`, `Vs`, `Rho`, `MorclesUnit` (and `Temperature`) of size
+`(length(ix), length(iy), length(maps.z))`, as in [`build_valais_model`](@ref). A block is identical to that part of
+the whole model, so a model too large for one process can be built block by block, e.g. one per MPI rank.
+"""
+function valais_model_block(maps, ix = eachindex(maps.x), iy = eachindex(maps.y); velocities = DEFAULT_VELOCITIES,
+                            temperature = false, air_value = NaN)
+    xg, yg, z, I, mm = maps.x, maps.y, maps.z, maps.interfaces, maps.morcles
+    nx, ny, nz = length(ix), length(iy), length(z)
     Phases = zeros(Int8, nx, ny, nz)
     Vp = zeros(Float32, nx, ny, nz); Vs = zeros(Float32, nx, ny, nz); Rho = zeros(Float32, nx, ny, nz)
     Morc = zeros(Int8, nx, ny, nz)
     V = velocities
-    Threads.@threads for j in 1:ny
-        for i in 1:nx, k in 1:nz
+    Threads.@threads for jl in 1:ny
+        j = iy[jl]
+        for il in 1:nx, k in 1:nz
+            i = ix[il]
             zk = z[k]
             t = I.topo[i, j]
             zk > t && continue                         # air (set to air_value below)
@@ -122,10 +109,10 @@ function build_valais_model(r::ValaisRegion = valais_region(); dx = 0.25, dx_sur
                 PHASES.mantle, V.mantle, I.rho_lm[i, j]
             end
             vp, vs = velocity(law, d)
-            Phases[i, j, k] = ph
-            Vp[i, j, k] = vp; Vs[i, j, k] = vs
-            Rho[i, j, k] = isnan(law.rho) ? rho : law.rho
-            zk <= I.bed[i, j] && (Morc[i, j, k] = mu)
+            Phases[il, jl, k] = ph
+            Vp[il, jl, k] = vp; Vs[il, jl, k] = vs
+            Rho[il, jl, k] = isnan(law.rho) ? rho : law.rho
+            zk <= I.bed[i, j] && (Morc[il, jl, k] = mu)
         end
     end
     air = Phases .== PHASES.air
@@ -134,11 +121,63 @@ function build_valais_model(r::ValaisRegion = valais_region(); dx = 0.25, dx_sur
     end
     fields = (Phases = Phases, Vp = Vp, Vs = Vs, Rho = Rho, MorclesUnit = Morc)
     if temperature
-        T = Float32.(temperature_3dalps(xg, yg, z))
+        T = Float32.(temperature_3dalps(xg[ix], yg[iy], z))
         T[air] .= Float32(air_value)
         fields = merge(fields, (Temperature = T,))
     end
-    X, Y, Zg = xyz_grid(xg, yg, z)
+    return fields
+end
+
+"""
+    build_valais_model(r = valais_region(); dx = 0.25, dx_surface = 0.1, z = nothing,
+                       fine_band = :auto, dz_fine = 0.025, dz_max_up = 0.25, dz_max_down = 2.0,
+                       growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true,
+                       temperature = true, air_value = NaN, outdir = datadir("output"), write = true)
+
+Build the Valais 3D geological / seismic velocity model on a rectilinear Cartesian LV95 grid (km):
+uniform horizontal spacing `dx`, vertical levels refined (`dz_fine`) in the elevation band of the
+Quaternary valley fill (see [`refined_levels`](@ref); `fine_band = :auto` derives it from
+swissBEDROCK, or pass a tuple `(zlow, zhigh)`; pass `z` to give the levels explicitly).
+
+Data: swissALTIRegio topography, swissBEDROCK Quaternary thickness, swisstopo tectonic map (surface),
+3D-ALPS layers & densities, Spada et al. (2013) Moho, 3D-ALPS-TR temperature, Morcles nappe model.
+
+Returns `(; surface, model, z, tecto)`. `model` is a `CartData` with fields `Phases` (see
+[`PHASES`](@ref)), `Vp`, `Vs` (km/s), `Rho` (kg/m³), `Temperature` (°C) and `MorclesUnit`
+(index into [`MORCLES_UNITS`](@ref), 0 outside). In air cells (`Phases == 0`) Vp, Vs, Rho and
+Temperature are set to `air_value` (default `NaN`, which ParaView can render transparent via the
+color map's "NaN Opacity"; use e.g. `air_value = 0` for solvers that do not accept NaN).
+
+The 3D model is [`valais_model_maps`](@ref) filled by [`valais_model_block`](@ref) over the whole grid; use these two
+to build only a part of it.
+"""
+function build_valais_model(r::ValaisRegion = valais_region(); dx = 0.25, dx_surface = 0.1, z = nothing,
+                            fine_band = :auto, dz_fine = 0.025, dz_max_up = 0.25, dz_max_down = 2.0,
+                            growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true,
+                            temperature = true, air_value = NaN, outdir = datadir("output"), write = true)
+    # ---------------- surface (high resolution) ----------------
+    xs, ys, topo_s = fetch_topography(r; dx = dx_surface)
+    _, _, bem_s, tmud_s = fetch_swissbedrock(r; dx = dx_surface)
+    tecto = tectonic_map_on_grid(xs, ys)
+    I_s = model_interfaces(xs, ys, topo_s, tmud_s)
+    Xs, Ys, Zs = xyz_grid(xs, ys, 0.0)
+    Zs[:, :, 1] .= topo_s
+    s3(a) = reshape(a, size(a)..., 1)
+    surface = CartData(Xs, Ys, Zs, (
+        Topography = s3(topo_s), BedrockElevation = s3(bem_s), QuaternaryThickness = s3(tmud_s),
+        TectoLevel1 = s3(tecto.level1), TectoLevel2 = s3(tecto.level2), TectoUnit = s3(tecto.unit),
+        QuaternaryMap = s3(Int.(tecto.quaternary)),
+        BaseConsolidatedSediments = s3(I_s.base_cs), UpperLowerCrust = s3(I_s.conrad),
+        MohoEuropean = s3(I_s.moho_eu), MohoAdriatic = s3(I_s.moho_ad),
+    ))
+
+    # ---------------- 3D grid ----------------
+    maps = valais_model_maps(r; dx, z, fine_band, dz_fine, dz_max_up, dz_max_down, growth, morcles)
+    z = maps.z
+    nx, ny, nz = length(maps.x), length(maps.y), length(z)
+    @info "3D grid: $(nx) × $(ny) × $(nz) = $(round(nx*ny*nz/1e6, digits=1)) M cells"
+    fields = valais_model_block(maps; velocities, temperature, air_value)
+    X, Y, Zg = xyz_grid(maps.x, maps.y, z)
     model = CartData(X, Y, Zg, fields)
 
     if write

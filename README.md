@@ -57,6 +57,14 @@ res.surface    # CartData: surface maps
 res.z          # vertical levels (km)
 ```
 
+A model too large for one process can be built block by block (e.g. one block per MPI rank): the 2D maps once, then any
+range of columns, identical to that part of the whole model.
+
+```julia
+maps = valais_model_maps(valais_region(); dx = 0.05, dz_fine = 0.025)   # axes x, y, z; interfaces; Morcles model
+block = valais_model_block(maps, 1:650, 1:475; air_value = 0)            # Phases, Vp, Vs, Rho, MorclesUnit of these columns
+```
+
 Open `data/output/*.vts` in ParaView. To hide the air: colour by e.g. `Vs`, open the Color Map Editor,
 click the gear icon (advanced properties) and set **NaN Opacity** to 0 — or apply a Threshold on `Phases` ≥ 1. The `unzip` command is needed for the 3D-ALPS-TR and Morcles archives.
 
