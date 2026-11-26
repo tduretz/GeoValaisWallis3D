@@ -30,6 +30,7 @@ mostly swissBEDROCK tiles; the cache is small); outputs go to `data/output/`. Bo
   (Alpine sedimentary nappes), `3` upper crust, `4` lower crust, `5` mantle,
   `6` Adriatic mantle wedge (Ivrea body).
   - Quaternary base = topography − swissBEDROCK thickness (0 outside Switzerland).
+    With `min_fill = 0.5` (default 0), deposits that fill less than half of the column's top cell are dropped.
   - Base of consolidated sediments = 3D-ALPS top of upper crust (≤ bedrock).
   - Upper/lower crust boundary at the 3D-ALPS fraction of crystalline-crust thickness, scaled to the Spada Moho.
   - Inside the Morcles model box, its formations override the geology below the bedrock surface

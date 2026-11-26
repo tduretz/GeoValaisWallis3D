@@ -41,27 +41,69 @@ function model_interfaces(x, y, topo, tmud)
 end
 
 """
+    top_cell_height(z, t) -> Float64
+
+Height of the top solid cell of a column with surface elevation `t` on the vertical levels `z` (increasing): the cell
+of the highest level `z[k] ≤ t`, from the midpoint to the level below to the midpoint to the level above.
+"""
+function top_cell_height(z, t)
+    n = length(z)
+    k = clamp(searchsortedlast(z, t), 1, n)
+    lo = k > 1 ? (z[k] - z[k-1]) / 2 : 0.0
+    hi = k < n ? (z[k+1] - z[k]) / 2 : 0.0
+    return k == 1 ? 2hi : k == n ? 2lo : lo + hi
+end
+
+"""
+    drop_thin_deposits(topo, tmud, z, fraction) -> tmud
+
+The Quaternary thickness `tmud` with the deposits dropped (thickness 0, the bedrock reaches the surface) in the columns
+where they fill less than `fraction` of the top solid cell ([`top_cell_height`](@ref) on the levels `z`). A cell takes
+the material at its level, so a deposit of a few metres would otherwise make a whole top cell of Quaternary when it
+reaches below that level, and none when it does not. `NaN` (no data) stays `NaN`; `topo` is in km like `tmud` and `z`.
+"""
+function drop_thin_deposits(topo, tmud, z, fraction)
+    out = copy(tmud)
+    for c in eachindex(topo, tmud)
+        q = tmud[c]
+        (isnan(q) || q <= 0) && continue
+        t = isnan(topo[c]) ? 0.0 : topo[c]
+        q < fraction * top_cell_height(z, t) && (out[c] = zero(q))
+    end
+    return out
+end
+
+"""
     valais_model_maps(r = valais_region(); dx = 0.25, z = nothing, fine_band = :auto, dz_fine = 0.025,
-                      dz_max_up = 0.25, dz_max_down = 2.0, growth = 1.08, morcles = true) -> NamedTuple
+                      dz_max_up = 0.25, dz_max_down = 2.0, growth = 1.08, morcles = true, min_fill = 0.0) -> NamedTuple
 
 The 3D model as maps: the grid axes `x`, `y` (LV95, km; uniform spacing `dx`) and `z` (vertical levels, see
 [`refined_levels`](@ref); `fine_band = :auto` derives the refined band from swissBEDROCK, or pass a tuple
 `(zlow, zhigh)`; pass `z` to give the levels explicitly), the layer `interfaces` on `x`, `y`
 ([`model_interfaces`](@ref)) and the Morcles voxel model (`morcles`, or `nothing`).
 
+`min_fill`: Quaternary deposits that fill less than this fraction of the column's top cell are dropped
+([`drop_thin_deposits`](@ref)); e.g. `min_fill = 0.5` makes a top cell Quaternary only if the deposit fills at least
+half of it. The default `0` keeps all deposits.
+
 This is all that is needed to fill any part of the 3D grid with [`valais_model_block`](@ref); it is small (2D), so every
 process of a parallel run can hold it.
 """
 function valais_model_maps(r::ValaisRegion = valais_region(); dx = 0.25, z = nothing, fine_band = :auto, dz_fine = 0.025,
-                           dz_max_up = 0.25, dz_max_down = 2.0, growth = 1.08, morcles = true)
+                           dz_max_up = 0.25, dz_max_down = 2.0, growth = 1.08, morcles = true, min_fill = 0.0)
     x, y, topo = fetch_topography(r; dx = dx)
     _, _, _, tmud = fetch_swissbedrock(r; dx = dx)
-    interfaces = model_interfaces(x, y, topo, tmud)
     if z === nothing
         band = fine_band === :auto ? fine_band_from_bedrock(topo, tmud) : fine_band
         z = refined_levels(r.z[1], r.z[2]; fine = band, dz_fine, dz_max_up, dz_max_down, growth)
         @info "Vertical grid: $(length(z)) levels, dz = $(dz_fine) km in [$(round(band[1], digits=3)), $(round(band[2], digits=3))] km"
     end
+    if min_fill > 0
+        thin = drop_thin_deposits(topo, tmud, z, min_fill)
+        @info "Quaternary deposits filling less than $(min_fill) of the top cell dropped in $(count(.!isequal.(thin, tmud))) of $(count(>(0), replace(tmud, NaN => 0.0))) columns with deposits"
+        tmud = thin
+    end
+    interfaces = model_interfaces(x, y, topo, tmud)
     return (; x, y, z, interfaces, morcles = morcles ? read_morcles() : nothing)
 end
 
@@ -131,7 +173,7 @@ end
 """
     build_valais_model(r = valais_region(); dx = 0.25, dx_surface = 0.1, z = nothing,
                        fine_band = :auto, dz_fine = 0.025, dz_max_up = 0.25, dz_max_down = 2.0,
-                       growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true,
+                       growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true, min_fill = 0.0,
                        temperature = true, air_value = NaN, outdir = datadir("output"), write = true)
 
 Build the Valais 3D geological / seismic velocity model on a rectilinear Cartesian LV95 grid (km):
@@ -153,7 +195,7 @@ to build only a part of it.
 """
 function build_valais_model(r::ValaisRegion = valais_region(); dx = 0.25, dx_surface = 0.1, z = nothing,
                             fine_band = :auto, dz_fine = 0.025, dz_max_up = 0.25, dz_max_down = 2.0,
-                            growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true,
+                            growth = 1.08, velocities = DEFAULT_VELOCITIES, morcles = true, min_fill = 0.0,
                             temperature = true, air_value = NaN, outdir = datadir("output"), write = true)
     # ---------------- surface (high resolution) ----------------
     xs, ys, topo_s = fetch_topography(r; dx = dx_surface)
@@ -172,7 +214,7 @@ function build_valais_model(r::ValaisRegion = valais_region(); dx = 0.25, dx_sur
     ))
 
     # ---------------- 3D grid ----------------
-    maps = valais_model_maps(r; dx, z, fine_band, dz_fine, dz_max_up, dz_max_down, growth, morcles)
+    maps = valais_model_maps(r; dx, z, fine_band, dz_fine, dz_max_up, dz_max_down, growth, morcles, min_fill)
     z = maps.z
     nx, ny, nz = length(maps.x), length(maps.y), length(z)
     @info "3D grid: $(nx) × $(ny) × $(nz) = $(round(nx*ny*nz/1e6, digits=1)) M cells"

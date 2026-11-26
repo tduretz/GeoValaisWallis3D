@@ -29,7 +29,7 @@ export download_tectonic_map, tectonic_map_on_grid, TectonicMap
 export download_moho_spada, read_moho_spada, interpolate_scattered
 export download_3dalps, download_3dalps_tr, alps3d_on_grid, temperature_3dalps
 export read_morcles, MorclesModel, MORCLES_UNITS, morcles_unit_at
-export refined_levels, fine_band_from_bedrock
+export refined_levels, fine_band_from_bedrock, drop_thin_deposits
 export LayerVelocity, DEFAULT_VELOCITIES
 export build_valais_model, valais_model_maps, valais_model_block, model_interfaces, PHASES, cartdata_to_geodata
 

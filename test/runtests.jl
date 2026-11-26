@@ -75,6 +75,31 @@ using Test
         end
     end
 
+    @testset "thin deposits" begin
+        z = [0.0, 0.025, 0.05, 0.075, 0.125, 0.175]          # 25 m cells, then 50 m
+        h = GeoValaisWallis3D.top_cell_height
+        @test h(z, 0.05) ≈ 0.025 && h(z, 0.07) ≈ 0.025 && h(z, 0.075) ≈ 0.0375 && h(z, 0.13) ≈ 0.05
+        @test h(z, -1.0) ≈ 0.025 && h(z, 1.0) ≈ 0.05
+        # top cell 25 m (topo 0.05; NaN counts as 0) or 50 m (topo 0.13); half a cell = 12.5 or 25 m
+        topo = [0.05 0.05 0.13 0.13 0.05 NaN]
+        tmud = [0.010 0.0125 0.020 0.030 NaN 0.010]
+        thin = drop_thin_deposits(topo, tmud, z, 0.5)
+        @test isequal(thin, [0.0 0.0125 0.0 0.030 NaN 0.0])
+        @test isequal(drop_thin_deposits(topo, tmud, z, 0.0), tmud)
+        # the top cell is no longer Quaternary where the deposit was dropped
+        f(v) = fill(v, 1, 4)
+        t = [0.05 0.05 0.13 0.13]
+        mk(q) = (; x = [0.0], y = collect(1.0:4.0), z,
+                 interfaces = (; topo = t, bed = t .- q, quat_thickness = q, base_cs = f(-1.0), conrad = f(-2.0),
+                               moho_eu = f(-3.0), moho_ad = f(NaN), rho_cs = f(2600.0), rho_uc = f(2700.0),
+                               rho_lc = f(2900.0), rho_lm = f(3300.0)), morcles = nothing)
+        q = tmud[:, 1:4]
+        top(P) = [P[1, j, searchsortedlast(z, t[j])] for j in 1:4]
+        @test top(valais_model_block(mk(q)).Phases) == fill(PHASES.quaternary, 4)
+        @test top(valais_model_block(mk(drop_thin_deposits(t, q, z, 0.5))).Phases) ==
+              [PHASES.consolidated_sediments, PHASES.quaternary, PHASES.consolidated_sediments, PHASES.quaternary]
+    end
+
     # Downloads data (swisstopo, GFZ, figshare, Spada et al.) -> opt-in: GVW_ONLINE_TESTS=true
     if get(ENV, "GVW_ONLINE_TESTS", "false") == "true"
         @testset "online: build model" begin
