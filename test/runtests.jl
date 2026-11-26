@@ -1,5 +1,5 @@
 using GeoValaisWallis3D
-using Test
+using Test, Statistics
 
 @testset "GeoValaisWallis3D.jl" begin
     @testset "region" begin
@@ -36,6 +36,68 @@ using Test
         topo = [0.5 1.0; 2.0 3.0]; tmud = [0.9 0.0; 0.05 0.0]
         lo, hi = fine_band_from_bedrock(topo, tmud; margin = 0.0, q = 1.0)
         @test lo ≈ -0.4 && hi ≈ 2.0
+    end
+
+    @testset "gravity: normal gravity and attraction of masses" begin
+        # GRS80 normal gravity: 978032.68 mGal at the equator, free-air gradient ≈ 0.3086 mGal/m
+        @test isapprox(normal_gravity(0.0, 0.0), 978032.677; atol = 1e-3)
+        @test isapprox(normal_gravity(46.0, 0.0) - normal_gravity(46.0, 0.1), 30.85; atol = 0.05)
+        G = GeoValaisWallis3D
+        # a distant prism acts like a vertical line mass
+        p = G._prism_gz(4750.0, 5250.0, -250.0, 250.0, -1000.0, 0.0, 2670.0)
+        l = G._column_gz(500.0^2, 2670.0, 5000.0^2, 0.0, -1000.0, 0.0)
+        @test isapprox(p, l; rtol = 0.01)
+        # 1 km thick slab, 50 × 50 km, station on top: close to the Bouguer plate 2πGρt = 111.96 mGal
+        s = 0.0
+        for i in -100:99, j in -100:99
+            x, y = (i + 0.5) * 250, (j + 0.5) * 250
+            s += (abs(x) < 400 && abs(y) < 400) ? G._prism_gz(x - 125, x + 125, y - 125, y + 125, -1000.0, 0.0, 2670.0) :
+                 G._column_gz(250.0^2, 2670.0, x^2 + y^2, 0.0, -1000.0, 0.0)
+        end
+        @test 108 < s < 111.96
+    end
+
+    @testset "gravity of a density model (GMG voxel_grav)" begin
+        # buried sphere on a stretched z grid: anomaly shape vs analytic (the slice-mean reference
+        # only adds a near-constant shift)
+        x = collect(0:0.5:40.0); y = collect(0:0.5:40.0)
+        z = refined_levels(-20.0, 1.0; fine = (-1.0, 0.5), dz_fine = 0.1, dz_max_up = 0.25, dz_max_down = 1.0)
+        rho = [zk > 0 ? 1.0 : 2800.0 + (hypot(xi - 20, yi - 20, zk + 6) <= 2.5 ? 300.0 : 0.0) for xi in x, yi in y, zk in z]
+        g = model_gravity(x, y, z, rho; dx = 1.0, dz = 0.25)
+        d = (6 + g.z_obs) * 1e3; M = 300 * 4 / 3 * π * 2.5e3^3
+        ana(r) = 6.674e-11 * M * d / (r^2 + d^2)^1.5 * 1e5
+        j = argmin(abs.(g.y .- 20))
+        dmod = g.dg[argmin(abs.(g.x .- 20)), j] - g.dg[argmin(abs.(g.x .- 30)), j]
+        @test isapprox(dmod, ana(0.0) - ana(10e3); rtol = 0.12)   # coarse voxels, 8-node averaging in voxel_grav
+        # upward continuation of a constant stays constant
+        @test all(upward_continue(0:1.0:10, 0:1.0:10, fill(5.0, 11, 11), 2.0) .≈ 5.0)
+    end
+
+    @testset "density inversion (GMG voxel_grav_adjoint + LSQR)" begin
+        # averaging onto a coarser grid keeps a constant density and the rock fraction
+        x = collect(0.125:0.25:9.875); y = copy(x); z = collect(-4.875:0.25:1.875)
+        air = [zk > 1.0 for _ in x, _ in y, zk in z]
+        g = density_on_grid(x, y, z, fill(2700.0, size(air)), air, 1.0:1.0:9.0, 1.0:1.0:9.0, -4.0:1.0:2.0)
+        @test all(g.rho[:, :, 1:5] .≈ 2700) && all(g.rockfrac[:, :, 1:5] .≈ 1) && all(g.rockfrac[:, :, 7] .== 0)
+        @test all(g.rockfrac[:, :, 6] .≈ 0.5)                                # node at 1 km: half air
+        # trilinear interpolation is exact for a linear field
+        xg, yg, zg = 0:2.0:10, 0:2.0:10, -6:1.0:0
+        F = [xi + 2yi - 3zk for xi in xg, yi in yg, zk in zg]
+        @test interpolate_nodes(xg, yg, zg, F, [1.3], [4.1], [-2.6])[1] ≈ 1.3 + 8.2 + 7.8
+        # synthetic inversion: dense block at depth, data with 0.1 mGal noise, regional offset of 20 mGal
+        xg = collect(-20.0:2:20); yg = copy(xg); zg = collect(-12.0:1:0)
+        X, Y, Z = xyz_grid(xg, yg, zg)
+        ρt = 300.0 .* ((abs.(X) .< 5) .& (abs.(Y) .< 5) .& (-9 .< Z .< -3))
+        E = vec(X[:, :, 1]); N = vec(Y[:, :, 1]); H = fill(0.0, length(E))
+        St = CartData(reshape(E, :, 1, 1), reshape(N, :, 1, 1), reshape(H, :, 1, 1), (h = reshape(H, :, 1, 1),))
+        Grid = CartData(X, Y, Z, (z = Z,))
+        dobs = vec(voxel_grav(Grid, ρt; stations = St, refMod = zeros(length(zg)), rhoTol = 0)[1]) .+ 20 .+ 0.1 .* randn(length(E))
+        inv = invert_density(xg, yg, zg, zeros(size(X)), trues(size(X)), zeros(length(xg), length(yg)), (E, N, H), dobs, 0.1; itmax = 100)
+        @test inv.misfit.final < 0.12                                         # at the noise level
+        @test inv.misfit.start > 10 * inv.misfit.final
+        @test isapprox(mean(inv.offset), 20; atol = 3)                       # the regional offset is recovered
+        k = argmax(vec(maximum(inv.drho[11, 11:11, :], dims = 1)))            # depth of the maximum below the centre
+        @test -10 <= zg[k] <= -2
     end
 
     @testset "velocity laws" begin

@@ -42,10 +42,11 @@ function _rasterize(path, layer, x, y, burnopts)
     dx = x[2] - x[1]
     dy = y[2] - y[1]
     te = [x[1] - dx / 2, y[1] - dy / 2, x[end] + dx / 2, y[end] + dy / 2] .* 1e3
-    opts = string.(["-l", layer, burnopts..., "-te", te..., "-ts", length(x), length(y),
+    # layer = nothing: the features are selected by an -sql option in `burnopts`
+    opts = string.([(isnothing(layer) ? [] : ["-l", layer])..., burnopts..., "-te", te..., "-ts", length(x), length(y),
                     "-ot", "Int32", "-init", 0, "-of", "GTiff"])
     AG.read(path) do ds
-        AG.gdalrasterize(ds, opts; dest = "/vsimem/raster_$(layer).tif") do r
+        AG.gdalrasterize(ds, opts; dest = "/vsimem/raster_$(something(layer, "sql")).tif") do r
             a = Int.(AG.read(AG.getband(r, 1)))   # (nx, ny), north -> south
             return reverse(a, dims = 2)
         end
