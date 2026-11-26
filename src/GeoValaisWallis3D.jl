@@ -11,6 +11,9 @@ Data sources
 - Crustal layers & densities: 3D-ALPS (Spooner et al. 2019); temperature: 3D-ALPS-TR (Spooner et al. 2020)
 - Moho: Spada et al. (2013, GJI) Western Alps Moho maps (European + Adriatic Moho)
 - Nappe de Morcles 3D geological model (Thornton et al. 2018, Sci. Data)
+- Gravity: swisstopo Gravimetric Atlas 1:100 000 (Bouguer anomalies), Gravimetric Map 1:500 000,
+  National Gravity Network LSN2004 (absolute gravity)
+- Seismic subsoil classes (SIA 261): BAFU national map, including the Valais 1:25 000 maps (CREALP)
 
 The model is built in Swiss LV95 coordinates (EPSG:2056), expressed in km.
 """
@@ -21,6 +24,9 @@ using Reexport
 import ArchGDAL as AG
 using DelimitedFiles
 using Downloads
+using LinearAlgebra, Statistics
+using Krylov: lsqr
+using LinearMaps: LinearMap
 
 export ValaisRegion, valais_region, datadir
 export lv95_to_lonlat, lonlat_to_lv95
@@ -32,6 +38,11 @@ export read_morcles, MorclesModel, MORCLES_UNITS, morcles_unit_at
 export refined_levels, fine_band_from_bedrock, drop_thin_deposits
 export LayerVelocity, DEFAULT_VELOCITIES
 export build_valais_model, valais_model_maps, valais_model_block, model_interfaces, PHASES, cartdata_to_geodata
+export fetch_gravity_atlas, fetch_bouguer_500k, fetch_gravity_network
+export topographic_attraction, gravity_maps, write_gravity_paraview, model_gravity, upward_continue
+export density_on_grid, bouguer_contrast, invert_density, interpolate_nodes
+export SUBSOIL_CLASSES, download_subsoil_classes, subsoil_release, subsoil_classes_on_grid, subsoil_map, write_subsoil_paraview
+export download_spectral_microzonation, spectral_microzonation_on_grid
 
 """
     datadir(parts...)
@@ -52,5 +63,7 @@ include("morcles.jl")
 include("grid.jl")
 include("velocity.jl")
 include("model.jl")
+include("gravity.jl")
+include("subsoil.jl")
 
 end # module GeoValaisWallis3D
