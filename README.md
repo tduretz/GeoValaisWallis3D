@@ -1,4 +1,4 @@
-# GeoValaisWallis3D
+# GeoValaisWallis3D.jl
 
 3D geological / seismic velocity model of the Valais/Wallis region (Swiss Alps), from the
 topographic surface down to below the Moho, built with
@@ -121,9 +121,15 @@ section. Below the bedrock surface they replace the regional geology inside this
 ## Usage
 
 ```bash
+git clone https://github.com/tduretz/GeoValaisWallis3D.jl.git GeoValaisWallis3D   # see the note below
+cd GeoValaisWallis3D
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 julia --project=. -t auto examples/build_valais_model.jl
 ```
+
+The package and module are called `GeoValaisWallis3D`; only the repository has the `.jl`. Clone it into a directory
+`GeoValaisWallis3D`, as above: [ValaisRawilWaves](https://github.com/tduretz/ValaisRawilWaves) finds it there, next to its
+own checkout (`path = "../GeoValaisWallis3D"`).
 
 ```julia
 using GeoValaisWallis3D            # re-exports GeophysicalModelGenerator
