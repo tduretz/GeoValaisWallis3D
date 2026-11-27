@@ -1,6 +1,6 @@
-# Figures of the README: the data sets combined in the model, and the model itself.
-#     julia --project=docs -t auto docs/make_figures.jl [figure ...]
-# Figures: overview layers sections subsoil gravity density morcles (default: all). Output: docs/figures/*.jpg (needs ImageMagick).
+# Figures of the model on the rectilinear grid, and of the data sets combined in it.
+#     julia --project=plotting -t auto rectilinear/make_figures.jl [figure ...]
+# Figures: overview layers sections subsoil gravity density morcles (default: all). Output: rectilinear/figures/*.jpg (needs ImageMagick).
 # density runs the density inversion of the Bouguer anomaly (invert_density: GMG voxel_grav / voxel_grav_adjoint + LSQR);
 # GVW_BACKEND=metal runs it on the Apple GPU (Float32), otherwise on the CPU (Float64, slow). Its result is cached in
 # data/output/density_inversion_figure.jls (delete it to rerun).
@@ -49,7 +49,7 @@ function savefig(name, fig)
     png = joinpath(tempdir(), name * ".png"); save(png, fig)
     jpg = joinpath(FIGDIR, name * ".jpg")
     run(`magick $png -quality 85 $jpg`)            # ImageMagick
-    println("written docs/figures/$name.jpg ($(round(filesize(jpg) / 1e6, digits = 2)) MB)")
+    println("written rectilinear/figures/$name.jpg ($(round(filesize(jpg) / 1e6, digits = 2)) MB)")
 end
 nanmask(a, m) = (b = Float64.(a); b[m] .= NaN; b)
 
@@ -326,7 +326,7 @@ if "morcles" in WHICH
 end
 
 # ------------------------------------------------------------------------------- showcase (one 4:5 image, e.g. LinkedIn)
-# Not in the default list: julia --project=docs -t auto docs/make_figures.jl showcase (needs a display: GLMakie; and the cache
+# Not in the default list: julia --project=plotting -t auto rectilinear/make_figures.jl showcase (needs a display: GLMakie; and the cache
 # of the "density" figure). The 3D panels are rendered alone with GLMakie (depth buffer), trimmed with ImageMagick and placed
 # as images; the rest is drawn with CairoMakie in the LaTeX font.
 if "showcase" in WHICH

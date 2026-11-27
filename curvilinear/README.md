@@ -3,7 +3,7 @@
 GeophysicalModelGenerator.jl 0.10.2 can build curvilinear meshes with `curvilinear_grid` and `deform_grid`. Their
 horizontal grid levels follow surfaces, and `voxel_grav` computes the gravity of such a mesh. This folder redoes the
 analysis of the package on such a mesh. The rectilinear grid ([`build_valais_model`](../src/model.jl)) and its figures
-in [`docs/figures`](../docs/figures) are unchanged.
+are in [rectilinear/](../rectilinear/README.md).
 
 ## The mesh
 
@@ -35,13 +35,15 @@ These are the interfaces that can be meshed: they span the whole region and neve
   Both remain boundaries between materials. The material rules are the same as on the rectilinear grid (a shared
   `_model_point`), applied at every node.
 
+Example: `julia --project=. -t auto examples/curvilinear/build_valais_model.jl`.
+
 `spacing = :sbp` places the points of each layer at the nodes of a summation-by-parts grid, as used by SeismicWavePC.jl.
 
 ## Figures
 
 ```bash
-GVW_BACKEND=metal julia --project=docs -t auto curvilinear/make_figures.jl          # all
-julia --project=docs -t auto curvilinear/make_figures.jl mesh layers sections        # some of: overview mesh layers sections subsoil gravity density morcles showcase
+GVW_BACKEND=metal julia --project=plotting -t auto curvilinear/make_figures.jl          # all
+julia --project=plotting -t auto curvilinear/make_figures.jl mesh layers sections        # some of: overview mesh layers sections subsoil gravity density morcles showcase
 ```
 
 `overview` and `showcase` render their 3D panels with GLMakie, which needs a display. `gravity` and `density` call GMG
@@ -98,7 +100,7 @@ reference is 2670 kg/m³ above sea level and the mean density per 500 m depth bi
 | inversion | unknowns | LSQR iterations | time on the Apple M2 Max GPU | rms misfit, start → final |
 |---|---|---|---|---|
 | curvilinear mesh (this folder) | 1.49 M | 66 | 158 s | 17.2 → 1.9 mGal |
-| rectilinear grid ([docs/figures/density.jpg](../docs/figures/density.jpg)) | 1.0 M | 62 | 71 s | 18.1 → 1.9 mGal |
+| rectilinear grid ([rectilinear/figures/density.jpg](../rectilinear/figures/density.jpg)) | 1.0 M | 62 | 71 s | 18.1 → 1.9 mGal |
 
 The starting misfit is lower here: the padding now holds the model (topography, 3D-ALPS, Moho) instead of uniform
 densities. The Ivrea body again needs about +200 kg/m³.

@@ -1,6 +1,6 @@
 # Build the 3D Valais/Wallis geological & seismic velocity model and write ParaView files.
 # Run from the repository root with:
-#     julia --project=. -t auto examples/build_valais_model.jl
+#     julia --project=. -t auto examples/rectilinear/build_valais_model.jl
 #
 # Data are fetched on first run and cached in data/raw/ (first run: ~5 GB transferred, ~15 min):
 #   - swisstopo swissALTIRegio DEM (Valais window read over HTTP)

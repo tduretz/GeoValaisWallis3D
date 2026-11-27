@@ -1,11 +1,11 @@
 # Figures of the model on the curvilinear mesh of GeophysicalModelGenerator (curvilinear_grid): the grid levels follow the
 # topography, the base of the consolidated sediments, the Conrad and the European Moho.
-#     julia --project=docs -t auto curvilinear/make_figures.jl [figure ...]
+#     julia --project=plotting -t auto curvilinear/make_figures.jl [figure ...]
 # Figures: overview mesh layers sections subsoil gravity density morcles showcase (default: all).
 # Output: curvilinear/figures/*.jpg (needs ImageMagick). overview and showcase render their 3D panels with GLMakie (needs a
 # display). gravity and density use GMG voxel_grav on curvilinear grids; GVW_BACKEND=metal runs them on the Apple GPU
 # (Float32), otherwise on the CPU (Float64, slow). Their results are cached in data/output/curvilinear_*.jls (delete to rerun).
-# The figures of the rectilinear grid are made by docs/make_figures.jl and are not changed by this script.
+# The figures of the rectilinear grid are made by rectilinear/make_figures.jl and are not changed by this script.
 using GeoValaisWallis3D, CairoMakie, Statistics, Serialization
 
 const FIGDIR = joinpath(@__DIR__, "figures")
