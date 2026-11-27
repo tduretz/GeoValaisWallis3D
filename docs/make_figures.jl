@@ -325,110 +325,145 @@ if "morcles" in WHICH
     savefig("morcles", fig)
 end
 
-# ------------------------------------------------------------------------------- showcase (one square image, e.g. LinkedIn)
-# Not in the default list: julia --project=docs -t auto docs/make_figures.jl showcase (needs the cache of "density").
+# ------------------------------------------------------------------------------- showcase (one 4:5 image, e.g. LinkedIn)
+# Not in the default list: julia --project=docs -t auto docs/make_figures.jl showcase (needs a display: GLMakie; and the cache
+# of the "density" figure). The 3D panels are rendered alone with GLMakie (depth buffer), trimmed with ImageMagick and placed
+# as images; the rest is drawn with CairoMakie in the LaTeX font.
 if "showcase" in WHICH
-    @eval using GLMakie                              # proper depth buffer for the 3D panels (CairoMakie has none)
-    Base.invokelatest(GLMakie.activate!; px_per_unit = 2)
     cache = datadir("output", "density_inversion_figure.jls")
     isfile(cache) || error("run the density figure first (it caches the inversion in $cache)")
     dres = deserialize(cache)
+    W = 1600                                          # logical width of the image (px_per_unit 2 -> 3200 × 4000 px)
+    tex = (; regular = Makie.texfont(), bold = Makie.texfont(:bold), italic = Makie.texfont(:italic))
+    ink, muted = RGBf(0.09, 0.09, 0.09), RGBf(0.33, 0.33, 0.31)
     shadecol(c, g) = (k = Makie.to_color(c); RGBf(k.r * (0.45 + 0.6g), k.g * (0.45 + 0.6g), k.b * (0.45 + 0.6g)))
     grey(g) = RGBf(0.3 + 0.65g, 0.3 + 0.65g, 0.3 + 0.65g)
-    ink, muted = RGBf(0.09, 0.09, 0.09), RGBf(0.35, 0.35, 0.33)
-    fig = Figure(size = (1600, 1600), backgroundcolor = :white, figure_padding = (30, 30, 20, 20))
+    tmp = mktempdir()
+    # render a 3D scene alone (GLMakie), trim the white border; returns the image file
+    function render3d(name, sz, draw!)
+        @eval using GLMakie
+        Base.invokelatest() do
+            GLMakie.activate!(px_per_unit = 2)
+            f = Figure(size = sz, fonts = tex, figure_padding = 0)
+            ax = Axis3(f[1, 1]; protrusions = 0, viewmode = :fit)
+            hidedecorations!(ax); hidespines!(ax)
+            draw!(ax)
+            png = joinpath(tmp, name * ".png"); save(png, f)
+            run(`magick $png -trim +repage $png`)
+            CairoMakie.activate!(type = "png", px_per_unit = 2)
+            png
+        end
+    end
+    loadimg(f) = rotr90(Makie.FileIO.load(f))
+    function imgaxis!(pos, f)
+        img = loadimg(f)
+        ax = Axis(pos, aspect = DataAspect(), backgroundcolor = :transparent)
+        hidedecorations!(ax); hidespines!(ax)
+        image!(ax, img, interpolate = true)
+        ax, size(img)
+    end
 
-    # header
-    Label(fig[1, 1:2], "GeoValaisWallis3D.jl", fontsize = 44, font = :bold, color = ink, halign = :left, tellwidth = false)
-    Label(fig[2, 1:2], "An open 3D geological and geophysical model of Valais/Wallis (Swiss Alps), built in Julia with GeophysicalModelGenerator.jl",
-          fontsize = 21, color = muted, halign = :left, tellwidth = false)
-
-    # hero: CREALP / BAFU subsoil classes draped on the topography of the Rhône valley
+    # ---- 3D 1: subsoil classes draped on the Rhône valley
     sm = subsoil_map(R; dx = 0.05)
     clcols = ["#3b5b92", "#5aa0c8", "#9ccf7a", "#f2c14e", "#e8743b", "#b5179e"]
     ex, ny_ = (2566.0, 2612.0), (1100.0, 1132.0)
     ix = findall(e -> ex[1] <= e <= ex[2], sm.x); iy = findall(n -> ny_[1] <= n <= ny_[2], sm.y)
     zs = sm.topo[ix, iy]; hs = clamp.(hillshade(zs, 0.05), 0, 1)
     rgb = [sm.class[ix[I[1]], iy[I[2]]] == 0 ? grey(hs[I]) : shadecol(clcols[sm.class[ix[I[1]], iy[I[2]]]], hs[I]) for I in CartesianIndices(zs)]
-    Label(fig[3, 1:2], "Seismic subsoil classes of the Rhône valley (CREALP / BAFU) draped on the swissALTIRegio relief: Martigny – Sion – Sierre",
-          fontsize = 19, color = ink, halign = :left, tellwidth = false)
-    ax = Axis3(fig[4, 1:2], aspect = (ex[2] - ex[1], ny_[2] - ny_[1], 1.5 * 4.0), azimuth = -0.35π, elevation = 0.17π,
-               protrusions = 0, viewmode = :fitzoom)
-    hidedecorations!(ax); hidespines!(ax)
-    surface!(ax, sm.x[ix], sm.y[iy], zs, color = rgb, shading = NoShading)
-    for (n, e, nn) in PLACES
-        (ex[1] <= e <= ex[2] && ny_[1] <= nn <= ny_[2]) || continue
-        i = argmin(abs.(sm.x[ix] .- e)); j = argmin(abs.(sm.y[iy] .- nn))
-        text!(ax, Point3f(e, nn, zs[i, j] + 0.6), text = n, fontsize = 19, align = (:center, :bottom), color = ink, glowcolor = (:white, 0.85), glowwidth = 3)
-    end
-    zlims!(ax, 0.3, 4.3)
-    Legend(fig[4, 1:2], [PolyElement(color = c) for c in clcols],
-           ["A rock", "B", "C", "D", "E soft layer on rock", "F special"], "SIA 261 class", orientation = :horizontal,
-           halign = :center, valign = :bottom, tellheight = false, tellwidth = false, framevisible = false, labelsize = 15,
-           titlesize = 15, titlefont = :regular, titleposition = :left, padding = (0, 0, 0, 0), margin = (0, 0, 8, 0))
+    hero = render3d("hero", (W, 900), ax -> begin
+        ax.aspect = (ex[2] - ex[1], ny_[2] - ny_[1], 1.5 * 4.0); ax.azimuth = -0.35π; ax.elevation = 0.2π
+        surface!(ax, sm.x[ix], sm.y[iy], zs, color = rgb, shading = NoShading)
+        for (n, e, nn) in PLACES
+            (ex[1] <= e <= ex[2] && ny_[1] <= nn <= ny_[2]) || continue
+            i = argmin(abs.(sm.x[ix] .- e)); j = argmin(abs.(sm.y[iy] .- nn))
+            text!(ax, Point3f(e, nn, zs[i, j] + 0.7), text = n, fontsize = 30, align = (:center, :bottom), color = ink,
+                  glowcolor = (:white, 0.9), glowwidth = 4)
+        end
+        zlims!(ax, 0.3, 4.3)
+    end)
 
-    # 3D fence diagram: tectonic map on the relief, two cross-sections of the phases down to 60 km
+    # ---- 3D 2: fence diagram of the model
     dx = 0.25
     x, y, topo = fetch_topography(R; dx)
     t = tectonic_map_on_grid(x, y)
     used = sort(unique(t.level2[t.level2 .> 0])); tcols = Makie.to_colormap(:tab20)
     tcol = Dict(c => tcols[k] for (k, c) in enumerate(used))
-    hs = clamp.(hillshade(topo, dx; exag = 1.0), 0, 1)
+    hs2 = clamp.(hillshade(topo, dx), 0, 1)
     maps = valais_model_maps(R; dx, dz_fine = 0.05)
     ia = argmin(abs.(maps.x .- SEC_A.E)); jb = argmin(abs.(maps.y .- SEC_B.N))
     A = valais_model_block(maps, ia:ia, eachindex(maps.y)); B = valais_model_block(maps, eachindex(maps.x), jb:jb)
     phcols = ["#ffffff", "#e9c46a", "#8fb8de", "#c0504d", "#7f6a93", "#3d5a40", "#2a9d8f"]
-    phrgb(p) = Makie.to_color(phcols[p + 1])
-    ztop = replace(topo, NaN => 0.0)
-    zsurf = copy(ztop); zsurf[(x .> SEC_A.E) .& (y' .< SEC_B.N)] .= NaN      # cut away the quadrant facing the viewer
-    srgb = [isnan(zsurf[I]) ? RGBf(1, 1, 1) : (t.level2[I] > 0 ? shadecol(tcol[t.level2[I]], hs[I]) : grey(hs[I])) for I in CartesianIndices(topo)]
-    Label(fig[5, 1], "The 3D model: tectonic units on the relief, crust and Moho below (to 60 km depth)", fontsize = 17, color = ink,
-          halign = :left, tellwidth = false)
-    ax3 = Axis3(fig[6, 1], aspect = (130, 95, 50), azimuth = -0.33π, elevation = 0.13π, protrusions = 0, viewmode = :fitzoom)
-    hidedecorations!(ax3); hidespines!(ax3)
-    surface!(ax3, x, y, zsurf, color = srgb, shading = NoShading)
-    za = maps.z
-    sel(v, lo) = findall(>=(lo), v)
-    # section A (N–S), south part (facing the cut) and B (W–E), east part; colours of the phases
-    jA = findall(<(SEC_B.N), maps.y); iB = findall(>(SEC_A.E), maps.x)
-    PA = A.Phases[1, jA, :]; PB = B.Phases[iB, 1, :]
-    surface!(ax3, fill(maps.x[ia], length(jA), length(za)), repeat(maps.y[jA], 1, length(za)), repeat(za', length(jA), 1),
-             color = [p == 0 ? RGBAf(1, 1, 1, 0) : RGBAf(phrgb(p).r, phrgb(p).g, phrgb(p).b, 1) for p in PA], shading = NoShading)
-    surface!(ax3, repeat(maps.x[iB], 1, length(za)), fill(maps.y[jb], length(iB), length(za)), repeat(za', length(iB), 1),
-             color = [p == 0 ? RGBAf(1, 1, 1, 0) : RGBAf(phrgb(p).r, phrgb(p).g, phrgb(p).b, 1) for p in PB], shading = NoShading)
-    zlims!(ax3, -60, 5)
-    Legend(fig[6, 1], [PolyElement(color = phcols[k]) for k in 2:7],
-           ["Quaternary", "sedimentary nappes", "upper crust", "lower crust", "mantle", "Adriatic mantle"],
-           halign = :right, valign = :bottom, tellheight = false, tellwidth = false, framevisible = false, labelsize = 14, rowgap = 0,
-           margin = (0, 10, 10, 0))
+    phrgba(p) = p == 0 ? RGBAf(1, 1, 1, 0) : (c = Makie.to_color(phcols[p + 1]); RGBAf(c.r, c.g, c.b, 1))
+    zsurf = replace(topo, NaN => 0.0); zsurf[(x .> SEC_A.E) .& (y' .< SEC_B.N)] .= NaN   # cut the corner facing the viewer
+    srgb = [t.level2[I] > 0 ? shadecol(tcol[t.level2[I]], hs2[I]) : grey(hs2[I]) for I in CartesianIndices(topo)]
+    za = maps.z; jA = findall(<(SEC_B.N), maps.y); iB = findall(>(SEC_A.E), maps.x)
+    fence = render3d("fence", (1000, 900), ax -> begin
+        ax.aspect = (130, 95, 50); ax.azimuth = -0.33π; ax.elevation = 0.13π
+        surface!(ax, x, y, zsurf, color = srgb, shading = NoShading)
+        surface!(ax, fill(maps.x[ia], length(jA), length(za)), repeat(maps.y[jA], 1, length(za)), repeat(za', length(jA), 1),
+                 color = phrgba.(A.Phases[1, jA, :]), shading = NoShading)
+        surface!(ax, repeat(maps.x[iB], 1, length(za)), fill(maps.y[jb], length(iB), length(za)), repeat(za', length(iB), 1),
+                 color = phrgba.(B.Phases[iB, 1, :]), shading = NoShading)
+        zlims!(ax, -60, 5)
+    end)
 
-    # right column: gravity inversion
-    g = fig[5:6, 2] = GridLayout()
+    # ---- composition (CairoMakie, LaTeX font)
+    fig = Figure(size = (W, 2000), fonts = tex, backgroundcolor = :white, figure_padding = (36, 36, 24, 24))
+    Label(fig[1, 1:2], "GeoValaisWallis3D.jl", fontsize = 64, font = :bold, color = ink, halign = :left, tellwidth = false)
+    Label(fig[2, 1:2], "An open 3D geological and geophysical model of Valais/Wallis, built in Julia with GeophysicalModelGenerator.jl",
+          fontsize = 27, color = muted, halign = :left, tellwidth = false)
+    cap(pos, s) = Label(pos, s, fontsize = 27, color = ink, halign = :left, justification = :left, tellwidth = false, word_wrap = true)
+
+    cap(fig[3, 1:2], "Seismic subsoil classes of the Rhône valley (CREALP / BAFU) on the swissALTIRegio relief, Martigny – Sion – Sierre")
+    _, hsz = imgaxis!(fig[4, 1:2], hero)
+    Legend(fig[5, 1:2], [PolyElement(color = c) for c in clcols], ["A rock", "B", "C", "D", "E thin soft layer", "F special"],
+           "SIA 261 class:", orientation = :horizontal, titleposition = :left, framevisible = false, labelsize = 24, titlesize = 24,
+           titlefont = :regular, colgap = 14, tellwidth = false)
+
+    cap(fig[6, 1], "The 3D model: tectonic map on the relief, crust and Moho to 60 km")
+    imgaxis!(fig[7, 1], fence)
+    Legend(fig[8, 1], [PolyElement(color = phcols[k]) for k in 3:6], ["sedimentary nappes", "upper crust", "lower crust", "mantle"],
+           orientation = :horizontal, framevisible = false, labelsize = 24, colgap = 14, tellwidth = false)
+
+    # gravity inversion
     k = argmin(abs.(dres.zg .+ 16.0))
-    rinv = dres.dobs .- dres.dg
     inner = (R.E[1] .<= dres.E .<= R.E[2]) .& (R.N[1] .<= dres.N .<= R.N[2])
-    rs = dres.dobs .- dres.dg0 .- dres.offset; rs .-= mean(rs[inner])
+    rs = dres.dobs .- dres.dg0 .- dres.offset; rs .-= mean(rs[inner]); rinv = dres.dobs .- dres.dg
     rmsv(a) = round(sqrt(mean(abs2, a)), digits = 1)
-    ax1 = Axis(g[1, 1], aspect = DataAspect(), titlesize = 17, titlecolor = ink,
-               title = "Gravity inversion (GMG adjoint + LSQR):\ndensity change at $(round(-dres.zg[k], digits = 0)) km depth")
+    cap(fig[6, 2], "Gravity inversion (GMG adjoint + LSQR)")
+    g = fig[7:8, 2] = GridLayout()
+    ax1 = Axis(g[1, 1], aspect = DataAspect(), titlesize = 24, titlefont = :regular, titlecolor = ink,
+               title = "density change at $(round(Int, -dres.zg[k])) km depth\nBouguer misfit $(rmsv(rs[inner])) → $(rmsv(rinv[inner])) mGal")
     hidedecorations!(ax1)
     hm = heatmap!(ax1, dres.xg, dres.yg, ifelse.(dres.active[:, :, k], dres.drho[:, :, k], NaN), colormap = Reverse(:RdBu), colorrange = (-200, 200))
     lines!(ax1, [R.E[1], R.E[2], R.E[2], R.E[1], R.E[1]], [R.N[1], R.N[1], R.N[2], R.N[2], R.N[1]], color = ink, linestyle = :dash)
-    places!(ax1; names = false)
-    Colorbar(g[1, 2], hm, label = "Δρ (kg/m³)", height = Relative(0.8), labelsize = 14)
-    ax2 = Axis(g[2, 1], aspect = DataAspect(), titlesize = 17, titlecolor = ink,
-               title = "Bouguer residual: $(rmsv(rs[inner])) → $(rmsv(rinv[inner])) mGal rms\n($(length(dres.E)) stations, $(round(count(dres.active) / 1e6, digits = 1)) M unknowns)")
-    hidedecorations!(ax2)
-    sc = scatter!(ax2, dres.E, dres.N, color = rinv, colormap = Reverse(:RdBu), colorrange = (-8, 8), markersize = 2.5)
-    lines!(ax2, [R.E[1], R.E[2], R.E[2], R.E[1], R.E[1]], [R.N[1], R.N[1], R.N[2], R.N[2], R.N[1]], color = ink, linestyle = :dash)
-    Colorbar(g[2, 2], sc, label = "mGal", height = Relative(0.8), labelsize = 14)
+    for (n, e, nn) in PLACES[[3, 6]]
+        scatter!(ax1, [e], [nn], color = ink, markersize = 9)
+        text!(ax1, e, nn, text = n, fontsize = 22, offset = (6, 4), color = ink, glowcolor = (:white, 0.8), glowwidth = 3)
+    end
+    text!(ax1, 2648.0, 1068.0, text = "Ivrea body", fontsize = 22, align = (:center, :top), color = ink, glowcolor = (:white, 0.8), glowwidth = 3)
+    Colorbar(g[2, 1], hm, label = "Δρ (kg/m³)", vertical = false, flipaxis = false, width = Relative(0.8), labelsize = 22, ticklabelsize = 20)
 
-    # footer: data credits
-    Label(fig[7, 1:2], "Data: swisstopo (swissALTIRegio, swissBEDROCK, Tectonic Map 1:500 000, Gravimetric Atlas), BAFU / CREALP subsoil classes, " *
-                       "3D-ALPS (Spooner et al. 2019), Moho of Spada et al. (2013), Nappe de Morcles (Thornton et al. 2018).   github.com/tduretz/GeoValaisWallis3D.jl",
-          fontsize = 13, color = muted, halign = :left, tellwidth = false, word_wrap = true)
-    rowsize!(fig.layout, 4, Relative(0.33)); rowsize!(fig.layout, 6, Relative(0.50))
-    colsize!(fig.layout, 1, Relative(0.64))
-    rowgap!(fig.layout, 1, 2); rowgap!(fig.layout, 2, 4)
+    # Morcles section
+    m = read_morcles()
+    jc = argmin(abs.(m.y .- (m.y[1] + m.y[end]) / 2))
+    nU = length(MORCLES_UNITS)
+    mcm = cgrad([Makie.to_color("#9e6b5a"); [get(cgrad(:roma), (k - 1) / (nU - 2)) for k in 1:nU-1]], nU, categorical = true)
+    cap(fig[9, 1:2], "Nappe de Morcles 3D geological model (Thornton et al. 2018), 18 formations: W–E section at N = $(round(m.y[jc], digits = 1)) km")
+    gm = fig[10, 1:2] = GridLayout()
+    axm = Axis(gm[1, 1], aspect = DataAspect(), xlabel = "E (km)", ylabel = "z (km)", xlabelsize = 22, ylabelsize = 22,
+               xticklabelsize = 20, yticklabelsize = 20, xgridvisible = false, ygridvisible = false)
+    heatmap!(axm, m.x, m.z, nanmask(m.unit[:, jc, :], m.unit[:, jc, :] .== 0), colormap = mcm, colorrange = (0.5, nU + 0.5))
+    xlims!(axm, extrema(m.x)...); ylims!(axm, 0, 3.0)
+    grp = [("crystalline basement", 1), ("Triassic–Jurassic", 6), ("Cretaceous", 12), ("Eocene–Oligocene", 17)]
+    Legend(gm[1, 2], [PolyElement(color = mcm[k]) for (_, k) in grp], first.(grp), framevisible = false, labelsize = 22, rowgap = 2)
+
+    Label(fig[11, 1:2], "Data: swisstopo (swissALTIRegio, swissBEDROCK, Tectonic Map 1:500 000, Gravimetric Atlas), BAFU / CREALP, 3D-ALPS " *
+                        "(Spooner et al. 2019), Spada et al. (2013), Thornton et al. (2018).    github.com/tduretz/GeoValaisWallis3D.jl",
+          fontsize = 18, color = muted, halign = :left, justification = :left, tellwidth = false, word_wrap = true)
+    colsize!(fig.layout, 1, Relative(0.6))
+    rowgap!(fig.layout, 6)
+    for r in (2, 4, 7, 9); rowgap!(fig.layout, r, 18); end
+    resize_to_layout!(fig)
     savefig("showcase", fig)
 end
