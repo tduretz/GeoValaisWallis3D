@@ -81,7 +81,7 @@ LSN2004 stations, where the free-air anomaly is known exactly (see [Gravity anom
 - **Stopping:** at the discrepancy principle.
 - **Run:** 8168 points and ≈ 1.0 M unknowns; LSQR stops after 62 iterations (71 s on an Apple M2 Max GPU).
 - **Result:** the rms misfit in the model region drops from 18.1 to 1.9 mGal. The largest change is the dense Ivrea body
-  in the south-east (+200 kg/m³ and more); the 3D-ALPS model puts it too deep and too light here.
+  in the south-east (+200 kg/m³ and more): the starting model is too light there.
 
 The figure shows:
 - top: the observed anomaly and the residuals of the starting and inverted models;
