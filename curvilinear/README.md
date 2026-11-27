@@ -39,6 +39,28 @@ Example: `julia --project=. -t auto examples/curvilinear/build_valais_model.jl`.
 
 `spacing = :sbp` places the points of each layer at the nodes of a summation-by-parts grid, as used by SeismicWavePC.jl.
 
+## Meshes for SeismicWavePC
+
+SeismicWavePC (≥ 0.2.0) simulates waves on such meshes with summation-by-parts (SBP) finite differences, and has its own
+requirements. `valais_curvilinear_maps` meets them with these options:
+
+- **`columns = :sbp`.** The columns sit at the SBP nodes from edge to edge of the region (`sbp_nodes`). The rasters are
+  read at `dx_data` and interpolated onto the columns.
+- **`spacing = :sbp`.** The levels of each layer sit at SBP nodes.
+- **`interface_above = true`.** A node on a meshed interface takes the material above it, the solver's convention.
+- **`depths` and `interfaces`.**
+  - *Why:* the solver splits the mesh into blocks only where the material jumps along the whole width. In the Valais
+    only the Moho does that everywhere: the Adriatic wedge breaks the Conrad, and the crystalline outcrops break the base
+    of the sediments. A change of vertical spacing at any other grid surface lowers the accuracy there.
+  - *Choice:* a wave mesh therefore follows the topography, surfaces parallel to it (e.g. `depths = (1.0, 3.0)`), the
+    Conrad and the Moho (`interfaces = (:conrad, :moho)`). The spacing then grows gradually from layer to layer.
+- **`heights = false`.** The heights of the whole mesh are not stored. `curvilinear_heights(maps, ix, iy)` and
+  `valais_model_block` compute them for the columns of one MPI rank.
+
+The Rawil wave simulations ([ValaisRawilWaves](https://github.com/tduretz/ValaisRawilWaves), `scripts/curvilinear/`)
+use these options. `interpolate_curvilinear` carries the density change of the gravity inversion over onto the wave
+mesh.
+
 ## Figures
 
 ```bash
