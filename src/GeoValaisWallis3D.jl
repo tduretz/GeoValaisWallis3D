@@ -15,7 +15,9 @@ Data sources
   National Gravity Network LSN2004 (absolute gravity)
 - Seismic subsoil classes (SIA 261): BAFU national map, including the Valais 1:25 000 maps (CREALP)
 
-The model is built in Swiss LV95 coordinates (EPSG:2056), expressed in km.
+The model is built in Swiss LV95 coordinates (EPSG:2056), expressed in km, on a rectilinear grid
+(`build_valais_model`) or on a curvilinear mesh of GeophysicalModelGenerator whose levels follow the topography,
+the base of the consolidated sediments, the Conrad and the Moho (`build_valais_curvilinear_model`).
 """
 module GeoValaisWallis3D
 
@@ -43,6 +45,8 @@ export topographic_attraction, gravity_maps, write_gravity_paraview, model_gravi
 export density_on_grid, bouguer_contrast, invert_density, interpolate_nodes
 export SUBSOIL_CLASSES, download_subsoil_classes, subsoil_release, subsoil_classes_on_grid, subsoil_map, write_subsoil_paraview
 export download_spectral_microzonation, spectral_microzonation_on_grid
+export CURVILINEAR_SURFACES, meshing_surfaces, curvilinear_levels, valais_curvilinear_maps, build_valais_curvilinear_model
+export curvilinear_density_model, curvilinear_bouguer_contrast
 
 """
     datadir(parts...)
@@ -65,5 +69,6 @@ include("velocity.jl")
 include("model.jl")
 include("gravity.jl")
 include("subsoil.jl")
+include("curvilinear.jl")
 
 end # module GeoValaisWallis3D

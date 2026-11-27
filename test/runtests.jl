@@ -162,6 +162,39 @@ using Test, Statistics
               [PHASES.consolidated_sediments, PHASES.quaternary, PHASES.consolidated_sediments, PHASES.quaternary]
     end
 
+    @testset "curvilinear mesh" begin
+        # synthetic interfaces on 6 × 5 columns: sediments that pinch out in one column, a dipping Conrad and Moho
+        x, y = collect(0.0:1.0:5.0), collect(0.0:1.0:4.0)
+        topo = [1.0 + 0.2sin(a) * cos(b) for a in x, b in y]
+        base_cs = topo .- 2.0; base_cs[3, 3] = topo[3, 3]                    # crystalline outcrop: no sediments
+        I = (; topo, base_cs, conrad = [-15.0 - a for a in x, _ in y], moho_eu = [-35.0 - 2b for _ in x, b in y])
+        S = meshing_surfaces(I, -60.0; fine_depth = 0.5, fine_min = 0.1)
+        @test keys(S) == CURVILINEAR_SURFACES
+        L = curvilinear_levels(x, y, S; dz = (0.05, 0.25, 1.0, 1.0, 2.0), min_thickness = 0.001)
+        z = L.z
+        @test size(z) == (6, 5, sum(L.nz) + 1) && all(>(0), diff(z, dims = 3))
+        @test L.levels.topography == size(z, 3) && L.levels.bottom == 1
+        # topography, Conrad, Moho and bottom are grid levels exactly; base_cs too, except where it pinches out
+        for s in (:topography, :conrad, :moho, :bottom)
+            @test z[:, :, L.levels[s]] ≈ S[s]
+        end
+        dev = z[:, :, L.levels.base_cs] .- S.base_cs
+        @test count(abs.(dev) .> 1e-9) == 1 && dev[3, 3] < 0
+        # the material rules on the mesh: no air, phases change at the meshed levels
+        f(v) = fill(v, 6, 5)
+        maps = (; x, y, z, morcles = nothing,
+                interfaces = (; I..., bed = topo, quat_thickness = f(0.0), moho_ad = f(NaN), rho_cs = f(2600.0),
+                              rho_uc = f(2700.0), rho_lc = f(2900.0), rho_lm = f(3300.0)))
+        P = valais_model_block(maps).Phases
+        @test !(PHASES.air in P)
+        k = L.levels.moho
+        @test all(P[:, :, k] .== PHASES.mantle) && all(P[:, :, k + 1] .== PHASES.lower_crust)
+        # Bouguer contrast: topography masses against 2670 kg/m³; no contrast in the uniform mantle below the deepest Moho
+        c = curvilinear_bouguer_contrast(z, valais_model_block(maps).Rho)
+        @test all(abs.(c.contrast[z .< -44.5]) .< 1e-9)
+        @test all(c.contrast[z .> 0] .≈ valais_model_block(maps).Rho[z .> 0] .- 2670)
+    end
+
     # Downloads data (swisstopo, GFZ, figshare, Spada et al.) -> opt-in: GVW_ONLINE_TESTS=true
     if get(ENV, "GVW_ONLINE_TESTS", "false") == "true"
         @testset "online: build model" begin

@@ -107,7 +107,8 @@ end
 
 Temperature (°C) of the 3D-ALPS-TR steady-state thermal model interpolated onto the LV95 grid
 `x`, `y`, `z` (km): bilinear between the 20 km model columns, linear in depth along each column
-(constant extrapolation above the column top / below its base).
+(constant extrapolation above the column top / below its base). `z` is a vector of levels, or the heights of a
+curvilinear grid, an array of size `(length(x), length(y), nz)`.
 """
 function temperature_3dalps(x, y, z)
     d = readdlm(download_3dalps_tr(), '\t', Float64; comments = true, comment_char = '#', skipstart = 4)
@@ -122,7 +123,8 @@ function temperature_3dalps(x, y, z)
     end
     g = Grid2D(xu, yu, zeros(length(xu), length(yu)))
     ux, uy = _lv95grid_to_utm(x, y)
-    T = Array{Float64}(undef, length(x), length(y), length(z))
+    nz = size(z, ndims(z))
+    T = Array{Float64}(undef, length(x), length(y), nz)
     colinterp(zz, TT, zq) = begin
         isempty(zz) && return NaN
         k = searchsortedfirst(zz, zq)
@@ -133,7 +135,8 @@ function temperature_3dalps(x, y, z)
     Threads.@threads for J in CartesianIndices(ux)
         i, j, a, b = _bilinear_weights(g, ux[J], uy[J])
         w = ((i, j, (1 - a) * (1 - b)), (i + 1, j, a * (1 - b)), (i, j + 1, (1 - a) * b), (i + 1, j + 1, a * b))
-        for (k, zq) in enumerate(z)
+        for k in 1:nz
+            zq = z isa AbstractVector ? z[k] : z[J[1], J[2], k]
             T[J[1], J[2], k] = sum(ww * colinterp(zc[ii, jj], Tc[ii, jj], zq) for (ii, jj, ww) in w)
         end
     end

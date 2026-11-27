@@ -495,15 +495,45 @@ Returns the contrast change `drho` (size of the grid), the anomaly at the statio
 per station), the number of `iterations`, and the rms misfit [mGal] before/after (`misfit`) and at
 every iteration (`rms_history`).
 """
-function invert_density(xg, yg, zg, contrast0, active, topo, stations, dobs, σ;
-                        z0 = 1.0, β = 2.0, chi2 = 1.0, itmax = 300, regional = true,
-                        backend = nothing, float_type = Float64)
+function invert_density(xg, yg, zg, contrast0, active, topo, stations, dobs, σ; kwargs...)
     X, Y, Z = xyz_grid(xg, yg, zg)
-    Grid = CartData(X, Y, Z, (z = Z,))
+    # volume of the dual cell of every node, and depth below the topography
+    h(v) = (b = _node_bounds(v); b[2] .- b[1])
+    V = h(xg) .* h(yg)' .* reshape(h(zg), 1, 1, :)
+    depth = max.(reshape(topo, size(topo)..., 1) .- reshape(zg, 1, 1, :), 0.0)
+    return _invert_density(CartData(X, Y, Z, (z = Z,)), V, depth, contrast0, active, stations, dobs, σ; kwargs...)
+end
+
+"""
+    invert_density(Grid::CartData, contrast0, active, stations, dobs, σ; z0 = 1.0, β = 2.0, kwargs...)
+
+[`invert_density`](@ref) on a curvilinear grid (e.g. [`curvilinear_density_model`](@ref)), whose top level is the
+topography: the depth weighting uses the depth of every node below the top of its column and the volume of its dual
+cell (horizontal spacing times the half-distances to the levels above and below). All other arguments and the result
+are as for the rectilinear grid; no node lies in the air, so `active` usually is all `true`.
+"""
+function invert_density(Grid::CartData, contrast0, active, stations, dobs, σ; kwargs...)
+    X, Y, Z = Grid.x.val, Grid.y.val, Grid.z.val
+    h(v) = (b = _node_bounds(v); b[2] .- b[1])
+    hz = similar(Z, Float64)
+    for k in axes(Z, 3)
+        lo = k > 1 ? (Z[:, :, k] .- Z[:, :, k - 1]) ./ 2 : 0.0
+        hi = k < size(Z, 3) ? (Z[:, :, k + 1] .- Z[:, :, k]) ./ 2 : 0.0
+        hz[:, :, k] .= lo .+ hi
+    end
+    V = h(X[:, 1, 1]) .* h(Y[1, :, 1])' .* hz
+    depth = Z[:, :, end:end] .- Z
+    return _invert_density(Grid, V, depth, contrast0, active, stations, dobs, σ; kwargs...)
+end
+
+function _invert_density(Grid, V, depth, contrast0, active, stations, dobs, σ;
+                         z0 = 1.0, β = 2.0, chi2 = 1.0, itmax = 300, regional = true,
+                         backend = nothing, float_type = Float64)
+    X = Grid.x.val
     St = CartData(reshape(collect(Float64, stations[1]), :, 1, 1), reshape(collect(Float64, stations[2]), :, 1, 1),
                   reshape(collect(Float64, stations[3]), :, 1, 1), (h = reshape(collect(Float64, stations[3]), :, 1, 1),))
     nd = length(dobs)
-    ref = zeros(length(zg))
+    ref = zeros(size(X, 3))
     kw = (; stations = St, backend, float_type)
     # a GPU call can be discarded by the driver (e.g. Metal "victim of GPU error/recovery", when the GPU
     # resets because of another process): the operator is deterministic, so such a call is repeated
@@ -520,9 +550,6 @@ function invert_density(xg, yg, zg, contrast0, active, topo, stations, dobs, σ;
     fwd(ρ) = retry(() -> vec(voxel_grav(Grid, ρ; refMod = ref, rhoTol = 0, kw...)[1]))
     adj(r) = retry(() -> voxel_grav_adjoint(Grid, reshape(r, :, 1, 1); kw...))
     # depth weighting (Li & Oldenburg 1998) with the volume of the dual cell of every node
-    h(v) = (b = _node_bounds(v); b[2] .- b[1])
-    V = h(xg) .* h(yg)' .* reshape(h(zg), 1, 1, :)
-    depth = max.(reshape(topo, size(topo)..., 1) .- reshape(zg, 1, 1, :), 0.0)
     w = (sqrt.(V) .* (depth .+ z0) .^ (-β / 2))[active]
     s = σ isa Number ? fill(Float64(σ), nd) : Float64.(σ)
     # regional plane, scaled so that LSQR hardly penalises it
