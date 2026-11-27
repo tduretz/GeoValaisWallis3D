@@ -72,6 +72,24 @@ LSN2004 stations, where the free-air anomaly is known exactly (see [Gravity anom
 
 ![Gravity anomalies](docs/figures/gravity.jpg)
 
+**Density inversion of the Bouguer anomaly** with the new adjoint gravity code of GeophysicalModelGenerator
+(`voxel_grav` + `voxel_grav_adjoint`, GMG ≥ 0.10.1) and LSQR, through `invert_density` (see
+[Density inversion](#density-inversion)).
+- **Starting model:** the density of the 3D model (3D-ALPS densities, 2000 kg/m³ for the Quaternary).
+- **Grid:** averaged onto a 1 km grid padded by 20 km on every side.
+- **Data:** fits the atlas points (σ = 2 mGal) with Li & Oldenburg depth weighting and a regional plane.
+- **Stopping:** at the discrepancy principle.
+- **Run:** 8168 points and ≈ 1.0 M unknowns; LSQR stops after 62 iterations (71 s on an Apple M2 Max GPU).
+- **Result:** the rms misfit in the model region drops from 18.1 to 1.9 mGal. The largest change is the dense Ivrea body
+  in the south-east (+200 kg/m³ and more); the 3D-ALPS model puts it too deep and too light here.
+
+The figure shows:
+- top: the observed anomaly and the residuals of the starting and inverted models;
+- middle: the density change at four depths;
+- bottom: the A–A' section and the convergence.
+
+![Density inversion of the Bouguer anomaly](docs/figures/density.jpg)
+
 **Nappe de Morcles** (Thornton et al. 2018): the 18 formations of the 50 m voxel model, at the surface and in a W–E
 section. Below the bedrock surface they replace the regional geology inside this box.
 
@@ -187,10 +205,12 @@ replace a site study.
 ```bash
 julia --project=docs -e 'using Pkg; Pkg.instantiate()'
 julia --project=docs -t auto docs/make_figures.jl                    # all, ~2 min with cached data
-julia --project=docs -t auto docs/make_figures.jl subsoil sections   # some of: overview layers sections subsoil gravity morcles
+julia --project=docs -t auto docs/make_figures.jl subsoil sections   # some of: overview layers sections subsoil gravity density morcles
 ```
 
-The `docs` environment adds CairoMakie to the package. It writes `docs/figures/*.jpg` (converted with ImageMagick's
+`density` runs the inversion itself. With `GVW_BACKEND=metal` it runs on the Apple GPU (Metal, Float32), otherwise on
+the CPU (Float64, much slower). The result is cached in `data/output/density_inversion_figure.jls`; delete that file to
+run the inversion again. The `docs` environment adds CairoMakie and Metal to the package. It writes `docs/figures/*.jpg` (converted with ImageMagick's
 `magick` to keep each file around 1 MB).
 
 ## Tests

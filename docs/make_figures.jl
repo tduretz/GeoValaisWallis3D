@@ -1,12 +1,15 @@
 # Figures of the README: the data sets combined in the model, and the model itself.
 #     julia --project=docs -t auto docs/make_figures.jl [figure ...]
-# Figures: overview layers sections subsoil gravity morcles (default: all). Output: docs/figures/*.jpg (needs ImageMagick).
+# Figures: overview layers sections subsoil gravity density morcles (default: all). Output: docs/figures/*.jpg (needs ImageMagick).
+# density runs the density inversion of the Bouguer anomaly (invert_density: GMG voxel_grav / voxel_grav_adjoint + LSQR);
+# GVW_BACKEND=metal runs it on the Apple GPU (Float32), otherwise on the CPU (Float64, slow). Its result is cached in
+# data/output/density_inversion_figure.jls (delete it to rerun).
 # Uses the cached data of data/raw/ (downloads what is missing, as the examples do).
-using GeoValaisWallis3D, CairoMakie, Statistics
+using GeoValaisWallis3D, CairoMakie, Statistics, Serialization
 
 const FIGDIR = joinpath(@__DIR__, "figures")
 mkpath(FIGDIR)
-const WHICH = isempty(ARGS) ? ["overview", "layers", "sections", "subsoil", "gravity", "morcles"] : ARGS
+const WHICH = isempty(ARGS) ? ["overview", "layers", "sections", "subsoil", "gravity", "density", "morcles"] : ARGS
 const R = valais_region()
 CairoMakie.activate!(type = "png", px_per_unit = 1.25)
 set_theme!(fontsize = 13, Axis = (titlesize = 14, titlefont = :regular, xgridvisible = false, ygridvisible = false),
@@ -213,6 +216,88 @@ if "gravity" in WHICH
     end
     Label(fig[0, 1:2], "swisstopo gravity: atlas points (dots), LSN2004 stations (triangles, free-air check: −3.6 ± 2.6 mGal)", fontsize = 14)
     savefig("gravity", fig)
+end
+
+# ------------------------------------------------------------------------- density inversion of the Bouguer anomaly
+if "density" in WHICH
+    const PAD, DXI, SIGMA = 20.0, 1.0, 2.0          # lateral padding and node spacing [km], data error [mGal]
+    cache = datadir("output", "density_inversion_figure.jls")
+    res = if isfile(cache)
+        deserialize(cache)
+    else
+        if get(ENV, "GVW_BACKEND", "cpu") == "metal"
+            @eval using Metal
+            backend, ft = Base.invokelatest(() -> Metal.MetalBackend()), Float32
+        else
+            backend, ft = nothing, Float64
+        end
+        # starting model: the density of the 3D model (250 m), averaged onto the nodes of the inversion grid
+        maps = valais_model_maps(R; dx = 0.25, dz_fine = 0.05, morcles = true)
+        mb = valais_model_block(maps)
+        air = mb.Phases .== 0
+        padded = ValaisRegion((R.E[1] - PAD, R.E[2] + PAD), (R.N[1] - PAD, R.N[2] + PAD), R.z)
+        xg, yg, topo = fetch_topography(padded; dx = DXI); topo = replace(topo, NaN => 0.0)
+        zg = let zs = collect(-3.0:0.25:4.5), dz = 0.25     # 250 m down to −3 km, then growing by 25 % per level
+            while zs[1] > R.z[1]
+                dz = min(1.25dz, 4.0); pushfirst!(zs, max(zs[1] - dz, R.z[1]))
+            end
+            zs
+        end
+        g = density_on_grid(maps.x, maps.y, maps.z, mb.Rho, air, xg, yg, zg; topo)
+        mb = nothing; GC.gc()
+        c0 = bouguer_contrast(g.rho, g.rockfrac, zg)
+        active = g.rockfrac .>= 0.5
+        at = fetch_gravity_atlas(R; margin = PAD)
+        sel = (xg[1] + 2 .<= at.E .<= xg[end] - 2) .& (yg[1] + 2 .<= at.N .<= yg[end] - 2) .& .!isnan.(at.bouguer)
+        E, N, H, dobs = at.E[sel], at.N[sel], at.h[sel], at.bouguer[sel]
+        inv = invert_density(xg, yg, zg, c0.contrast, active, topo, (E, N, H), dobs, SIGMA; z0 = 1.0, β = 2.0,
+                             backend, float_type = ft)
+        drho = zeros(size(inv.drho)); drho[active] .= inv.drho[active] ./ g.rockfrac[active]
+        r = (; xg, yg, zg, topo, active, rho0 = g.rho, drho, E, N, dobs, dg0 = inv.dg0, dg = inv.dg, offset = inv.offset,
+             iterations = inv.iterations, rms_history = inv.rms_history)
+        serialize(cache, r); r
+    end
+    (; xg, yg, zg, topo, active, rho0, drho, E, N, dobs) = res
+    inner = (R.E[1] .<= E .<= R.E[2]) .& (R.N[1] .<= N .<= R.N[2])
+    rstart = dobs .- res.dg0 .- res.offset; rstart .-= mean(rstart[inner])     # starting model, same regional plane
+    rinv = dobs .- res.dg
+    rms(a) = sqrt(mean(abs2, a))
+    box!(ax) = lines!(ax, [R.E[1], R.E[2], R.E[2], R.E[1], R.E[1]], [R.N[1], R.N[1], R.N[2], R.N[2], R.N[1]], color = :black, linestyle = :dash)
+    fig = Figure(size = (1500, 1180))
+    g1 = fig[1, 1] = GridLayout(); g2 = fig[2, 1] = GridLayout(); g3 = fig[3, 1] = GridLayout()
+    dm = dobs .- mean(dobs[inner])
+    for (n, (v, t, cr)) in enumerate([(dm, "observed Bouguer anomaly (atlas, mean removed)", 60),
+                                      (rstart, "residual of the starting model: rms $(round(rms(rstart[inner]), digits = 1)) mGal", 40),
+                                      (rinv, "residual of the inverted model: rms $(round(rms(rinv[inner]), digits = 1)) mGal", 8)])
+        local ax = Axis(g1[1, 2n - 1], aspect = DataAspect(), title = t, titlesize = 13, xlabel = "E (km)", ylabel = n == 1 ? "N (km)" : "")
+        sc = scatter!(ax, E, N, color = v, colormap = Reverse(:RdBu), colorrange = (-cr, cr), markersize = 3)
+        contour!(ax, xg, yg, topo, levels = [1.0, 2.5], color = (:black, 0.3), linewidth = 0.5); box!(ax)
+        Colorbar(g1[1, 2n], sc, label = "mGal", height = Relative(0.6))
+    end
+    local hm
+    for (n, zz) in enumerate([0.0, -5.0, -15.0, -35.0])
+        k = argmin(abs.(zg .- zz))
+        local ax = Axis(g2[1, n], aspect = DataAspect(), title = "density change, z = $(round(zg[k], digits = 1)) km",
+                        xlabel = "E (km)", ylabel = n == 1 ? "N (km)" : "")
+        hm = heatmap!(ax, xg, yg, ifelse.(active[:, :, k], drho[:, :, k], NaN), colormap = Reverse(:RdBu), colorrange = (-200, 200), nan_color = :transparent)
+        box!(ax); places!(ax; names = false)
+    end
+    Colorbar(g2[1, 5], hm, label = "Δρ (kg/m³)", height = Relative(0.6))
+    i = argmin(abs.(xg .- SEC_A.E))
+    ax = Axis(g3[1, 1], xlabel = "N (km)", ylabel = "elevation (km)", title = "A–A' (E = $(xg[i]) km): inverted density")
+    h1 = heatmap!(ax, yg, zg, ifelse.(active[i, :, :], rho0[i, :, :] .+ drho[i, :, :], NaN), colormap = :batlow, colorrange = (2300, 3400), nan_color = :transparent)
+    Colorbar(g3[1, 2], h1, label = "ρ (kg/m³)")
+    ax = Axis(g3[1, 3], xlabel = "N (km)", title = "A–A': density change")
+    h2 = heatmap!(ax, yg, zg, ifelse.(active[i, :, :], drho[i, :, :], NaN), colormap = Reverse(:RdBu), colorrange = (-200, 200), nan_color = :transparent)
+    Colorbar(g3[1, 4], h2, label = "Δρ (kg/m³)")
+    ax = Axis(g3[1, 5], xlabel = "LSQR iteration", ylabel = "rms misfit (mGal)", yscale = log10, yticks = [2, 5, 10, 20, 50, 100], title = "convergence (stops at σ = $(SIGMA) mGal)")
+    lines!(ax, 0:length(res.rms_history) - 1, res.rms_history, color = "#2a78d6", linewidth = 2)
+    hlines!(ax, [SIGMA], color = :gray, linestyle = :dash)
+    colsize!(g3, 5, Relative(0.22))
+    rowsize!(fig.layout, 1, Relative(0.3)); rowsize!(fig.layout, 2, Relative(0.27))
+    Label(fig[0, 1], "Density inversion of the swisstopo Bouguer anomaly (GMG voxel_grav + voxel_grav_adjoint, LSQR, Li & Oldenburg depth weighting): " *
+                     "$(length(E)) atlas points, $(count(active)) unknowns, $(res.iterations) iterations", fontsize = 14)
+    savefig("density", fig)
 end
 
 # ------------------------------------------------------------------------------------------------ Morcles
