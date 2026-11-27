@@ -108,6 +108,40 @@ function valais_model_maps(r::ValaisRegion = valais_region(); dx = 0.25, z = not
 end
 
 """
+    _model_point(maps, i, j, zk, V = DEFAULT_VELOCITIES) -> (phase, Vp, Vs, Rho, MorclesUnit)
+
+Material of the model at the height `zk` (km) in the column `maps.x[i]`, `maps.y[j]` of [`valais_model_maps`](@ref) (or
+[`valais_curvilinear_maps`](@ref)): the rules of [`build_valais_model`](@ref), shared by the rectilinear and the
+curvilinear grids. Above the topography, the phase is `PHASES.air` and the other values are 0.
+"""
+function _model_point(maps, i, j, zk, V = DEFAULT_VELOCITIES)
+    I, mm = maps.interfaces, maps.morcles
+    t = I.topo[i, j]
+    zk > t && return (Int8(PHASES.air), 0f0, 0f0, 0f0, Int8(0))
+    d = t - zk                                 # depth below surface
+    mu = mm === nothing ? Int8(0) : morcles_unit_at(mm, maps.x[i], maps.y[j], zk)
+    mad = I.moho_ad[i, j]; meu = I.moho_eu[i, j]
+    ph, law, rho = if zk > I.bed[i, j]
+        PHASES.quaternary, V.quaternary, NaN
+    elseif mu > 0
+        mu == 1 ? (PHASES.upper_crust, V.upper_crust, I.rho_uc[i, j]) :
+                  (PHASES.consolidated_sediments, V.consolidated_sediments, I.rho_cs[i, j])
+    elseif zk > I.base_cs[i, j]
+        PHASES.consolidated_sediments, V.consolidated_sediments, I.rho_cs[i, j]
+    elseif !isnan(mad) && mad > meu && meu < zk <= mad
+        PHASES.adriatic_mantle, V.adriatic_mantle, I.rho_lm[i, j]
+    elseif zk > I.conrad[i, j]
+        PHASES.upper_crust, V.upper_crust, I.rho_uc[i, j]
+    elseif zk > meu
+        PHASES.lower_crust, V.lower_crust, I.rho_lc[i, j]
+    else
+        PHASES.mantle, V.mantle, I.rho_lm[i, j]
+    end
+    vp, vs = velocity(law, d)
+    return (Int8(ph), Float32(vp), Float32(vs), Float32(isnan(law.rho) ? rho : law.rho), zk <= I.bed[i, j] ? mu : Int8(0))
+end
+
+"""
     valais_model_block(maps, ix = eachindex(maps.x), iy = eachindex(maps.y); velocities = DEFAULT_VELOCITIES,
                        temperature = false, air_value = NaN) -> NamedTuple
 
@@ -118,43 +152,21 @@ the whole model, so a model too large for one process can be built block by bloc
 """
 function valais_model_block(maps, ix = eachindex(maps.x), iy = eachindex(maps.y); velocities = DEFAULT_VELOCITIES,
                             temperature = false, air_value = NaN)
-    xg, yg, z, I, mm = maps.x, maps.y, maps.z, maps.interfaces, maps.morcles
-    nx, ny, nz = length(ix), length(iy), length(z)
+    z = maps.z
+    nx, ny, nz = length(ix), length(iy), size(z, ndims(z))
     Phases = zeros(Int8, nx, ny, nz)
     Vp = zeros(Float32, nx, ny, nz); Vs = zeros(Float32, nx, ny, nz); Rho = zeros(Float32, nx, ny, nz)
     Morc = zeros(Int8, nx, ny, nz)
-    V = velocities
     Threads.@threads for jl in 1:ny
         j = iy[jl]
         for il in 1:nx, k in 1:nz
             i = ix[il]
-            zk = z[k]
-            t = I.topo[i, j]
-            zk > t && continue                         # air (set to air_value below)
-            d = t - zk                                 # depth below surface
-            mu = mm === nothing ? Int8(0) : morcles_unit_at(mm, xg[i], yg[j], zk)
-            mad = I.moho_ad[i, j]; meu = I.moho_eu[i, j]
-            ph, law, rho = if zk > I.bed[i, j]
-                PHASES.quaternary, V.quaternary, NaN
-            elseif mu > 0
-                mu == 1 ? (PHASES.upper_crust, V.upper_crust, I.rho_uc[i, j]) :
-                          (PHASES.consolidated_sediments, V.consolidated_sediments, I.rho_cs[i, j])
-            elseif zk > I.base_cs[i, j]
-                PHASES.consolidated_sediments, V.consolidated_sediments, I.rho_cs[i, j]
-            elseif !isnan(mad) && mad > meu && meu < zk <= mad
-                PHASES.adriatic_mantle, V.adriatic_mantle, I.rho_lm[i, j]
-            elseif zk > I.conrad[i, j]
-                PHASES.upper_crust, V.upper_crust, I.rho_uc[i, j]
-            elseif zk > meu
-                PHASES.lower_crust, V.lower_crust, I.rho_lc[i, j]
-            else
-                PHASES.mantle, V.mantle, I.rho_lm[i, j]
-            end
-            vp, vs = velocity(law, d)
+            zk = z isa AbstractVector ? z[k] : z[i, j, k]       # rectilinear levels, or the heights of a curvilinear mesh
+            ph, vp, vs, rho, mu = _model_point(maps, i, j, zk, velocities)
+            ph == PHASES.air && continue                       # air (set to air_value below)
             Phases[il, jl, k] = ph
-            Vp[il, jl, k] = vp; Vs[il, jl, k] = vs
-            Rho[il, jl, k] = isnan(law.rho) ? rho : law.rho
-            zk <= I.bed[i, j] && (Morc[il, jl, k] = mu)
+            Vp[il, jl, k] = vp; Vs[il, jl, k] = vs; Rho[il, jl, k] = rho
+            Morc[il, jl, k] = mu
         end
     end
     air = Phases .== PHASES.air
@@ -163,7 +175,7 @@ function valais_model_block(maps, ix = eachindex(maps.x), iy = eachindex(maps.y)
     end
     fields = (Phases = Phases, Vp = Vp, Vs = Vs, Rho = Rho, MorclesUnit = Morc)
     if temperature
-        T = Float32.(temperature_3dalps(xg[ix], yg[iy], z))
+        T = Float32.(temperature_3dalps(maps.x[ix], maps.y[iy], z isa AbstractVector ? z : z[ix, iy, :]))
         T[air] .= Float32(air_value)
         fields = merge(fields, (Temperature = T,))
     end

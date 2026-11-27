@@ -118,6 +118,17 @@ section. Below the bedrock surface they replace the regional geology inside this
 - **Surface dataset**: topography, bedrock elevation, Quaternary thickness, tectonic units
   (3 levels), model interfaces and Moho depths. Legend of all codes in `data/output/legend.csv`.
 
+## Curvilinear mesh
+
+The model can also be built on a curvilinear mesh of GeophysicalModelGenerator (`curvilinear_grid`, GMG ≥ 0.10.2), whose
+grid levels follow the topography, the base of the consolidated sediments, the Conrad and the European Moho
+(`valais_curvilinear_maps`, `build_valais_curvilinear_model`, `examples/build_valais_curvilinear_model.jl`). It has no air
+nodes, and the Quaternary fill lies in a 25 m layer that follows the topography. The gravity inversion runs on it as well
+(`curvilinear_density_model`, `curvilinear_bouguer_contrast`, `invert_density(Grid, ...)`). The whole analysis on this
+mesh, with its figures, is in [curvilinear/](curvilinear/README.md).
+
+![The model on the curvilinear mesh](curvilinear/figures/overview.jpg)
+
 ## Usage
 
 ```bash
@@ -217,7 +228,8 @@ julia --project=docs -t auto docs/make_figures.jl subsoil sections   # some of: 
 `density` runs the inversion itself. With `GVW_BACKEND=metal` it runs on the Apple GPU (Metal, Float32), otherwise on
 the CPU (Float64, much slower). The result is cached in `data/output/density_inversion_figure.jls`; delete that file to
 run the inversion again. The `docs` environment adds CairoMakie and Metal to the package. It writes `docs/figures/*.jpg` (converted with ImageMagick's
-`magick` to keep each file around 1 MB).
+`magick` to keep each file around 1 MB). The figures of the curvilinear mesh are made by `curvilinear/make_figures.jl`
+(see [curvilinear/README.md](curvilinear/README.md)).
 
 ## Tests
 
