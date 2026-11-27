@@ -408,7 +408,7 @@ if "showcase" in WHICH
     end)
 
     # ---- composition (CairoMakie, LaTeX font)
-    fig = Figure(size = (W, 2000), fonts = tex, backgroundcolor = :white, figure_padding = (36, 36, 24, 24))
+    fig = Figure(size = (W, 3000), fonts = tex, backgroundcolor = :white, figure_padding = (36, 36, 24, 24))
     Label(fig[1, 1:2], "GeoValaisWallis3D.jl", fontsize = 64, font = :bold, color = ink, halign = :left, tellwidth = false)
     Label(fig[2, 1:2], "An open 3D geological and geophysical model of Valais/Wallis, built in Julia with GeophysicalModelGenerator.jl",
           fontsize = 27, color = muted, halign = :left, tellwidth = false)
@@ -421,7 +421,7 @@ if "showcase" in WHICH
            titlefont = :regular, colgap = 14, tellwidth = false)
 
     cap(fig[6, 1], "The 3D model: tectonic map on the relief, crust and Moho to 60 km")
-    imgaxis!(fig[7, 1], fence)
+    _, fsz = imgaxis!(fig[7, 1], fence)
     Legend(fig[8, 1], [PolyElement(color = phcols[k]) for k in 3:6], ["sedimentary nappes", "upper crust", "lower crust", "mantle"],
            orientation = :horizontal, framevisible = false, labelsize = 24, colgap = 14, tellwidth = false)
 
@@ -450,18 +450,22 @@ if "showcase" in WHICH
     nU = length(MORCLES_UNITS)
     mcm = cgrad([Makie.to_color("#9e6b5a"); [get(cgrad(:roma), (k - 1) / (nU - 2)) for k in 1:nU-1]], nU, categorical = true)
     cap(fig[9, 1:2], "Nappe de Morcles 3D geological model (Thornton et al. 2018), 18 formations: W–E section at N = $(round(m.y[jc], digits = 1)) km")
-    gm = fig[10, 1:2] = GridLayout()
-    axm = Axis(gm[1, 1], aspect = DataAspect(), xlabel = "E (km)", ylabel = "z (km)", xlabelsize = 22, ylabelsize = 22,
+    axm = Axis(fig[10, 1:2], aspect = DataAspect(), xlabel = "E (km)", ylabel = "z (km)", xlabelsize = 22, ylabelsize = 22,
                xticklabelsize = 20, yticklabelsize = 20, xgridvisible = false, ygridvisible = false)
     heatmap!(axm, m.x, m.z, nanmask(m.unit[:, jc, :], m.unit[:, jc, :] .== 0), colormap = mcm, colorrange = (0.5, nU + 0.5))
-    xlims!(axm, extrema(m.x)...); ylims!(axm, 0, 3.0)
+    xlims!(axm, extrema(m.x)...); ylims!(axm, 0, 2.8)
     grp = [("crystalline basement", 1), ("Triassic–Jurassic", 6), ("Cretaceous", 12), ("Eocene–Oligocene", 17)]
-    Legend(gm[1, 2], [PolyElement(color = mcm[k]) for (_, k) in grp], first.(grp), framevisible = false, labelsize = 22, rowgap = 2)
+    axislegend(axm, [PolyElement(color = mcm[k]) for (_, k) in grp], first.(grp), position = :lb, framevisible = true,
+               framecolor = (:white, 0), backgroundcolor = (:white, 0.85), labelsize = 22, rowgap = 2, margin = (8, 8, 8, 8))
 
     Label(fig[11, 1:2], "Data: swisstopo (swissALTIRegio, swissBEDROCK, Tectonic Map 1:500 000, Gravimetric Atlas), BAFU / CREALP, 3D-ALPS " *
                         "(Spooner et al. 2019), Spada et al. (2013), Thornton et al. (2018).    github.com/tduretz/GeoValaisWallis3D.jl",
           fontsize = 18, color = muted, halign = :left, justification = :left, tellwidth = false, word_wrap = true)
     colsize!(fig.layout, 1, Relative(0.6))
+    cw = W - 72                                   # content width (figure padding)
+    rowsize!(fig.layout, 4, Fixed(cw * hsz[2] / hsz[1]))
+    rowsize!(fig.layout, 7, Fixed(0.6cw * fsz[2] / fsz[1]))
+    rowsize!(fig.layout, 10, Fixed((cw - 70) * 2.8 / (m.x[end] - m.x[1]) + 60))
     rowgap!(fig.layout, 6)
     for r in (2, 4, 7, 9); rowgap!(fig.layout, r, 18); end
     resize_to_layout!(fig)
