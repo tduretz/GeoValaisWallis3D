@@ -22,6 +22,61 @@ The swisstopo **swissAlps3D (SA3D)** model is not yet publicly downloadable (202
 when released. Data are downloaded on first use to `data/raw/` (or `$GEOVALAIS_DATADIR/raw` if set, e.g. on a cluster scratch file system; first run ≈ 5 GB transferred,
 mostly swissBEDROCK tiles; the cache is small); outputs go to `data/output/`. Both are git-ignored.
 
+## The data sets in pictures
+
+All figures are made from the cached data by `docs/make_figures.jl` (see [below](#figures)).
+
+**Overview.** Shaded relief of swissALTIRegio with the tectonic units of the 1:500 000 map, which are written into the
+surface dataset. The box marks the Nappe de Morcles 3D model, and the dashed lines the cross-sections A–A' and B–B'
+further down.
+
+![Overview: topography and tectonic units](docs/figures/overview.jpg)
+
+**Seismic subsoil classes: mapping the surface.** In the Rhône valley, the BAFU map of SIA 261 subsoil classes
+contains the 1:25 000 maps of CREALP for the canton of Valais. Draped on the 50 m topography, they give a map of the
+ground at the surface:
+- rock (A);
+- thin soft layers on rock on the slopes (E);
+- the deep, soft fill of the valley floor (C, D).
+
+The black outlines are the spectral microzonation studies (Sion, Martigny, Brig-Visp, Chablais); inside them the class
+map has gaps. The classes are indicative: they don't replace a site study. On the valley floor they mirror the thick
+Quaternary of swissBEDROCK (next figure), which sets phase 1 of the model.
+
+![Seismic subsoil classes draped on the topography](docs/figures/subsoil.jpg)
+
+**Interfaces of the model.** Each interface comes from one dataset:
+- the topography (swissALTIRegio);
+- the Quaternary thickness (swissBEDROCK, up to ≈ 600 m under Lake Geneva and the Rhône valley);
+- the base of the consolidated sediments and the upper/lower crust boundary (3D-ALPS, scaled to the Spada Moho);
+- the European and Adriatic Moho (Spada et al. 2013).
+
+The Adriatic Moho exists only in the south-east corner (Ivrea).
+
+![Model interfaces](docs/figures/layers.jpg)
+
+**Cross-sections through the 3D model** (`valais_model_block`, 250 m grid) along A–A' (N–S through Sion) and B–B'
+(W–E along the Rhône valley). The rows show:
+- the phases;
+- Vs from the first-order velocity laws (`DEFAULT_VELOCITIES`, to be calibrated);
+- the 3D-ALPS-TR temperature;
+- the shallow part, with the Quaternary fill of the valley and the Morcles basement.
+
+The steps in the deep interfaces come from the 20 km grid of 3D-ALPS.
+
+![Cross-sections: phases, Vs, temperature](docs/figures/sections.jpg)
+
+**Gravity.** The complete Bouguer anomaly is shown from the 1:100 000 atlas points and from the 1:500 000 contours. The
+attraction of the topography is computed by this package, and the free-air anomaly is their sum. The triangles are the
+LSN2004 stations, where the free-air anomaly is known exactly (see [Gravity anomalies](#gravity-anomalies)).
+
+![Gravity anomalies](docs/figures/gravity.jpg)
+
+**Nappe de Morcles** (Thornton et al. 2018): the 18 formations of the 50 m voxel model, at the surface and in a W–E
+section. Below the bedrock surface they replace the regional geology inside this box.
+
+![Nappe de Morcles 3D model](docs/figures/morcles.jpg)
+
 ## Model
 
 - **Grid**: rectilinear Cartesian grid in Swiss LV95 (EPSG:2056), km (`x` easting, `y` northing,
@@ -126,6 +181,17 @@ microzonation replaces it; their maps and design spectra are PDFs and spreadshee
 `SpectralMicrozonation`. The legend is in `subsoil_legend.csv`. In ParaView, colour by `SubsoilClass`
 with an indexed colour map and set NaN Opacity to 0. The classes are indicative (1:25 000): they don't
 replace a site study.
+
+## Figures
+
+```bash
+julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+julia --project=docs -t auto docs/make_figures.jl                    # all, ~2 min with cached data
+julia --project=docs -t auto docs/make_figures.jl subsoil sections   # some of: overview layers sections subsoil gravity morcles
+```
+
+The `docs` environment adds CairoMakie to the package. It writes `docs/figures/*.jpg` (converted with ImageMagick's
+`magick` to keep each file around 1 MB).
 
 ## Tests
 
