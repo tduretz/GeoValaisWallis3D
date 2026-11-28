@@ -24,20 +24,21 @@ mostly swissBEDROCK tiles; the cache is small); outputs go to `data/output/`. Bo
 
 ## Repository layout
 
-The model is built on two grids, each with its own folder of figures:
+The model is built on two grids. Each grid has its own folder under `figures/`, with its README, figure script and
+images:
 
 ```
 src/                     the package (data access, interfaces, material rules, gravity); src/curvilinear.jl: the curvilinear mesh
-rectilinear/             model on a rectilinear grid: README, make_figures.jl, figures/
-curvilinear/             model on a curvilinear (terrain-following) mesh of GMG: README, make_figures.jl, figures/
 examples/rectilinear/    build the rectilinear model and write ParaView files
 examples/curvilinear/    build the curvilinear model and write ParaView files
 examples/                gravity_maps.jl, subsoil_classes.jl: data sets that do not depend on the grid
-plotting/                Julia environment of the figure scripts (CairoMakie, GLMakie, Metal)
+figures/                 Julia environment of the figure scripts (CairoMakie, GLMakie, Metal)
+figures/rectilinear/     model on a rectilinear grid: README, make_figures.jl, images
+figures/curvilinear/     model on a curvilinear (terrain-following) mesh of GMG: README, make_figures.jl, images
 test/                    tests
 ```
 
-| | [rectilinear grid](rectilinear/README.md) | [curvilinear mesh](curvilinear/README.md) |
+| | [rectilinear grid](figures/rectilinear/README.md) | [curvilinear mesh](figures/curvilinear/README.md) |
 |---|---|---|
 | builder | `build_valais_model`, `valais_model_maps` | `build_valais_curvilinear_model`, `valais_curvilinear_maps` |
 | levels | horizontal; 25 m in the elevation band of the Quaternary fill | follow the topography, base of consolidated sediments, Conrad, European Moho |
@@ -46,19 +47,19 @@ test/                    tests
 
 Both grids share the data, the interfaces (`model_interfaces`) and the material rules, so the same column gives the
 same phases on both. The pictures below show the data sets, made with the rectilinear grid; the same analysis on the
-curvilinear mesh, with its figures, is in [curvilinear/](curvilinear/README.md).
+curvilinear mesh, with its figures, is in [figures/curvilinear/](figures/curvilinear/README.md).
 
-![The model on the curvilinear mesh](curvilinear/figures/overview.jpg)
+![The model on the curvilinear mesh](figures/curvilinear/overview.jpg)
 
 ## The data sets in pictures
 
-All figures are made from the cached data by `rectilinear/make_figures.jl` (see [rectilinear/README.md](rectilinear/README.md#figures)).
+All figures are made from the cached data by `figures/rectilinear/make_figures.jl` (see [figures/rectilinear/README.md](figures/rectilinear/README.md#figures)).
 
 **Overview.** Shaded relief of swissALTIRegio with the tectonic units of the 1:500 000 map, which are written into the
 surface dataset. The box marks the Nappe de Morcles 3D model, and the dashed lines the cross-sections A–A' and B–B'
 further down.
 
-![Overview: topography and tectonic units](rectilinear/figures/overview.jpg)
+![Overview: topography and tectonic units](figures/rectilinear/overview.jpg)
 
 **Seismic subsoil classes: mapping the surface.** In the Rhône valley, the BAFU map of SIA 261 subsoil classes
 contains the 1:25 000 maps of CREALP for the canton of Valais. Draped on the 50 m topography, they give a map of the
@@ -71,7 +72,7 @@ The black outlines are the spectral microzonation studies (Sion, Martigny, Brig-
 map has gaps. The classes are indicative: they don't replace a site study. On the valley floor they mirror the thick
 Quaternary of swissBEDROCK (next figure), which sets phase 1 of the model.
 
-![Seismic subsoil classes draped on the topography](rectilinear/figures/subsoil.jpg)
+![Seismic subsoil classes draped on the topography](figures/rectilinear/subsoil.jpg)
 
 **Interfaces of the model.** Each interface comes from one dataset:
 - the topography (swissALTIRegio);
@@ -81,7 +82,7 @@ Quaternary of swissBEDROCK (next figure), which sets phase 1 of the model.
 
 The Adriatic Moho exists only in the south-east corner (Ivrea).
 
-![Model interfaces](rectilinear/figures/layers.jpg)
+![Model interfaces](figures/rectilinear/layers.jpg)
 
 **Cross-sections through the 3D model** (`valais_model_block`, 250 m grid) along A–A' (N–S through Sion) and B–B'
 (W–E along the Rhône valley). The rows show:
@@ -92,13 +93,13 @@ The Adriatic Moho exists only in the south-east corner (Ivrea).
 
 The steps in the deep interfaces come from the 20 km grid of 3D-ALPS.
 
-![Cross-sections: phases, Vs, temperature](rectilinear/figures/sections.jpg)
+![Cross-sections: phases, Vs, temperature](figures/rectilinear/sections.jpg)
 
 **Gravity.** The complete Bouguer anomaly is shown from the 1:100 000 atlas points and from the 1:500 000 contours. The
 attraction of the topography is computed by this package, and the free-air anomaly is their sum. The triangles are the
 LSN2004 stations, where the free-air anomaly is known exactly (see [Gravity anomalies](#gravity-anomalies)).
 
-![Gravity anomalies](rectilinear/figures/gravity.jpg)
+![Gravity anomalies](figures/rectilinear/gravity.jpg)
 
 **Density inversion of the Bouguer anomaly** with the new adjoint gravity code of GeophysicalModelGenerator
 (`voxel_grav` + `voxel_grav_adjoint`, GMG ≥ 0.10.1) and LSQR, through `invert_density` (see
@@ -116,17 +117,17 @@ The figure shows:
 - middle: the density change at four depths;
 - bottom: the A–A' section and the convergence.
 
-![Density inversion of the Bouguer anomaly](rectilinear/figures/density.jpg)
+![Density inversion of the Bouguer anomaly](figures/rectilinear/density.jpg)
 
 **Nappe de Morcles** (Thornton et al. 2018): the 18 formations of the 50 m voxel model, at the surface and in a W–E
 section. Below the bedrock surface they replace the regional geology inside this box.
 
-![Nappe de Morcles 3D model](rectilinear/figures/morcles.jpg)
+![Nappe de Morcles 3D model](figures/rectilinear/morcles.jpg)
 
 ## Model
 
 - **Coordinates**: Swiss LV95 (EPSG:2056), km (`x` easting, `y` northing, `z` elevation). The grids are described in
-  [rectilinear/README.md](rectilinear/README.md) and [curvilinear/README.md](curvilinear/README.md).
+  [figures/rectilinear/README.md](figures/rectilinear/README.md) and [figures/curvilinear/README.md](figures/curvilinear/README.md).
 - **Phases** (`PHASES`): `0` air, `1` Quaternary deposits, `2` consolidated sediments
   (Alpine sedimentary nappes), `3` upper crust, `4` lower crust, `5` mantle,
   `6` Adriatic mantle wedge (Ivrea body).
@@ -163,8 +164,8 @@ res = build_valais_model(valais_region(); dx = 0.25, dz_fine = 0.025)       # re
 cur = build_valais_curvilinear_model(valais_region(); dx = 0.25)            # curvilinear mesh
 ```
 
-Building a model block by block, and the options of each grid: [rectilinear/README.md](rectilinear/README.md),
-[curvilinear/README.md](curvilinear/README.md).
+Building a model block by block, and the options of each grid: [figures/rectilinear/README.md](figures/rectilinear/README.md),
+[figures/curvilinear/README.md](figures/curvilinear/README.md).
 
 Open `data/output/*.vts` in ParaView. To hide the air: colour by e.g. `Vs`, open the Color Map Editor,
 click the gear icon (advanced properties) and set **NaN Opacity** to 0 — or apply a Threshold on `Phases` ≥ 1. The `unzip` command is needed for the 3D-ALPS-TR and Morcles archives.
@@ -228,12 +229,12 @@ replace a site study.
 ## Figures
 
 ```bash
-julia --project=plotting -e 'using Pkg; Pkg.instantiate()'
-GVW_BACKEND=metal julia --project=plotting -t auto rectilinear/make_figures.jl   # writes rectilinear/figures/*.jpg
-GVW_BACKEND=metal julia --project=plotting -t auto curvilinear/make_figures.jl   # writes curvilinear/figures/*.jpg
+julia --project=figures -e 'using Pkg; Pkg.instantiate()'
+GVW_BACKEND=metal julia --project=figures -t auto figures/rectilinear/make_figures.jl   # writes figures/rectilinear/*.jpg
+GVW_BACKEND=metal julia --project=figures -t auto figures/curvilinear/make_figures.jl   # writes figures/curvilinear/*.jpg
 ```
 
-The `plotting` environment adds CairoMakie, GLMakie and Metal to the package. The options of each script are in its
+The `figures` environment adds CairoMakie, GLMakie and Metal to the package. The options of each script are in its
 folder's README; images are converted to JPEG with ImageMagick's `magick`.
 
 ## Tests

@@ -39,22 +39,22 @@ block = valais_model_block(maps, 1:650, 1:475; air_value = 0)            # Phase
 ## Figures
 
 ```bash
-julia --project=plotting -e 'using Pkg; Pkg.instantiate()'
-julia --project=plotting -t auto rectilinear/make_figures.jl                    # all, ~2 min with cached data
-julia --project=plotting -t auto rectilinear/make_figures.jl subsoil sections   # some of: overview layers sections subsoil gravity density morcles
-julia --project=plotting -t auto rectilinear/make_figures.jl showcase           # opt-in: GLMakie (needs a display) and the density cache
+julia --project=figures -e 'using Pkg; Pkg.instantiate()'
+julia --project=figures -t auto figures/rectilinear/make_figures.jl                    # all, ~2 min with cached data
+julia --project=figures -t auto figures/rectilinear/make_figures.jl subsoil sections   # some of: overview layers sections subsoil gravity density morcles
+julia --project=figures -t auto figures/rectilinear/make_figures.jl showcase           # opt-in: GLMakie (needs a display) and the density cache
 ```
 
 - **`density`:** runs the inversion itself. With `GVW_BACKEND=metal` it runs on the Apple GPU (Metal, Float32);
   otherwise on the CPU (Float64, much slower). The result is cached in `data/output/density_inversion_figure.jls`;
   delete that file to run the inversion again.
-- **Output:** the images are written to `rectilinear/figures/*.jpg`. ImageMagick's `magick` converts them to JPEG to
+- **Output:** the images are written to `figures/rectilinear/*.jpg`. ImageMagick's `magick` converts them to JPEG to
   keep each file around 1 MB.
 
-The figures are described in the [main README](../README.md#the-data-sets-in-pictures):
+The figures are described in the [main README](../../README.md#the-data-sets-in-pictures):
 
 | | | |
 |---|---|---|
-| [overview](figures/overview.jpg) | [layers](figures/layers.jpg) | [sections](figures/sections.jpg) |
-| [subsoil](figures/subsoil.jpg) | [gravity](figures/gravity.jpg) | [density](figures/density.jpg) |
-| [morcles](figures/morcles.jpg) | [showcase](figures/showcase.jpg) | |
+| [overview](overview.jpg) | [layers](layers.jpg) | [sections](sections.jpg) |
+| [subsoil](subsoil.jpg) | [gravity](gravity.jpg) | [density](density.jpg) |
+| [morcles](morcles.jpg) | [showcase](showcase.jpg) | |
