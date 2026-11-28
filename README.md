@@ -22,15 +22,44 @@ The swisstopo **swissAlps3D (SA3D)** model is not yet publicly downloadable (202
 when released. Data are downloaded on first use to `data/raw/` (or `$GEOVALAIS_DATADIR/raw` if set, e.g. on a cluster scratch file system; first run ≈ 5 GB transferred,
 mostly swissBEDROCK tiles; the cache is small); outputs go to `data/output/`. Both are git-ignored.
 
+## Repository layout
+
+The model is built on two grids. Each grid has its own folder under `figures/`, with its README, figure script and
+images:
+
+```
+src/                     the package (data access, interfaces, material rules, gravity); src/curvilinear.jl: the curvilinear mesh
+examples/rectilinear/    build the rectilinear model and write ParaView files
+examples/curvilinear/    build the curvilinear model and write ParaView files
+examples/                gravity_maps.jl, subsoil_classes.jl: data sets that do not depend on the grid
+figures/                 Julia environment of the figure scripts (CairoMakie, GLMakie, Metal)
+figures/rectilinear/     model on a rectilinear grid: README, make_figures.jl, images
+figures/curvilinear/     model on a curvilinear (terrain-following) mesh of GMG: README, make_figures.jl, images
+test/                    tests
+```
+
+| | [rectilinear grid](figures/rectilinear/README.md) | [curvilinear mesh](figures/curvilinear/README.md) |
+|---|---|---|
+| builder | `build_valais_model`, `valais_model_maps` | `build_valais_curvilinear_model`, `valais_curvilinear_maps` |
+| levels | horizontal; 25 m in the elevation band of the Quaternary fill | follow the topography, base of consolidated sediments, Conrad, European Moho |
+| topography | staircase of cells, air cells above it (NaN) | the top grid level; no air nodes |
+| gravity inversion | `invert_density(xg, yg, zg, …)`, rock fractions at the surface | `invert_density(Grid, …)` on `curvilinear_density_model` |
+
+Both grids share the data, the interfaces (`model_interfaces`) and the material rules, so the same column gives the
+same phases on both. The pictures below show the data sets, made with the rectilinear grid; the same analysis on the
+curvilinear mesh, with its figures, is in [figures/curvilinear/](figures/curvilinear/README.md).
+
+![The model on the curvilinear mesh](figures/curvilinear/overview.jpg)
+
 ## The data sets in pictures
 
-All figures are made from the cached data by `docs/make_figures.jl` (see [below](#figures)).
+All figures are made from the cached data by `figures/rectilinear/make_figures.jl` (see [figures/rectilinear/README.md](figures/rectilinear/README.md#figures)).
 
 **Overview.** Shaded relief of swissALTIRegio with the tectonic units of the 1:500 000 map, which are written into the
 surface dataset. The box marks the Nappe de Morcles 3D model, and the dashed lines the cross-sections A–A' and B–B'
 further down.
 
-![Overview: topography and tectonic units](docs/figures/overview.jpg)
+![Overview: topography and tectonic units](figures/rectilinear/overview.jpg)
 
 **Seismic subsoil classes: mapping the surface.** In the Rhône valley, the BAFU map of SIA 261 subsoil classes
 contains the 1:25 000 maps of CREALP for the canton of Valais. Draped on the 50 m topography, they give a map of the
@@ -43,7 +72,7 @@ The black outlines are the spectral microzonation studies (Sion, Martigny, Brig-
 map has gaps. The classes are indicative: they don't replace a site study. On the valley floor they mirror the thick
 Quaternary of swissBEDROCK (next figure), which sets phase 1 of the model.
 
-![Seismic subsoil classes draped on the topography](docs/figures/subsoil.jpg)
+![Seismic subsoil classes draped on the topography](figures/rectilinear/subsoil.jpg)
 
 **Interfaces of the model.** Each interface comes from one dataset:
 - the topography (swissALTIRegio);
@@ -53,7 +82,7 @@ Quaternary of swissBEDROCK (next figure), which sets phase 1 of the model.
 
 The Adriatic Moho exists only in the south-east corner (Ivrea).
 
-![Model interfaces](docs/figures/layers.jpg)
+![Model interfaces](figures/rectilinear/layers.jpg)
 
 **Cross-sections through the 3D model** (`valais_model_block`, 250 m grid) along A–A' (N–S through Sion) and B–B'
 (W–E along the Rhône valley). The rows show:
@@ -64,13 +93,13 @@ The Adriatic Moho exists only in the south-east corner (Ivrea).
 
 The steps in the deep interfaces come from the 20 km grid of 3D-ALPS.
 
-![Cross-sections: phases, Vs, temperature](docs/figures/sections.jpg)
+![Cross-sections: phases, Vs, temperature](figures/rectilinear/sections.jpg)
 
 **Gravity.** The complete Bouguer anomaly is shown from the 1:100 000 atlas points and from the 1:500 000 contours. The
 attraction of the topography is computed by this package, and the free-air anomaly is their sum. The triangles are the
 LSN2004 stations, where the free-air anomaly is known exactly (see [Gravity anomalies](#gravity-anomalies)).
 
-![Gravity anomalies](docs/figures/gravity.jpg)
+![Gravity anomalies](figures/rectilinear/gravity.jpg)
 
 **Density inversion of the Bouguer anomaly** with the new adjoint gravity code of GeophysicalModelGenerator
 (`voxel_grav` + `voxel_grav_adjoint`, GMG ≥ 0.10.1) and LSQR, through `invert_density` (see
@@ -88,19 +117,17 @@ The figure shows:
 - middle: the density change at four depths;
 - bottom: the A–A' section and the convergence.
 
-![Density inversion of the Bouguer anomaly](docs/figures/density.jpg)
+![Density inversion of the Bouguer anomaly](figures/rectilinear/density.jpg)
 
 **Nappe de Morcles** (Thornton et al. 2018): the 18 formations of the 50 m voxel model, at the surface and in a W–E
 section. Below the bedrock surface they replace the regional geology inside this box.
 
-![Nappe de Morcles 3D model](docs/figures/morcles.jpg)
+![Nappe de Morcles 3D model](figures/rectilinear/morcles.jpg)
 
 ## Model
 
-- **Grid**: rectilinear Cartesian grid in Swiss LV95 (EPSG:2056), km (`x` easting, `y` northing,
-  `z` elevation). Uniform horizontal spacing `dx`; vertical spacing `dz_fine` (default 25 m) in the
-  elevation band of the Quaternary valley fill (derived from swissBEDROCK, ≈ −0.5 … +1.6 km a.s.l.),
-  growing geometrically to `dz_max_up` above and `dz_max_down` at depth (`refined_levels`).
+- **Coordinates**: Swiss LV95 (EPSG:2056), km (`x` easting, `y` northing, `z` elevation). The grids are described in
+  [figures/rectilinear/README.md](figures/rectilinear/README.md) and [figures/curvilinear/README.md](figures/curvilinear/README.md).
 - **Phases** (`PHASES`): `0` air, `1` Quaternary deposits, `2` consolidated sediments
   (Alpine sedimentary nappes), `3` upper crust, `4` lower crust, `5` mantle,
   `6` Adriatic mantle wedge (Ivrea body).
@@ -113,21 +140,10 @@ section. Below the bedrock surface they replace the regional geology inside this
 - **Fields**: `Phases`, `Vp`, `Vs` (km/s), `Rho` (kg/m³; 3D-ALPS densities), `Temperature` (°C, 3D-ALPS-TR),
   `MorclesUnit`. Velocities are linear in depth below the surface per phase (`DEFAULT_VELOCITIES`,
   `LayerVelocity`) — **first-order values to be calibrated**, e.g. against Rhône valley Vs profiles.
-  Air cells (`Phases = 0`) have Vp = Vs = Rho = Temperature = NaN (`air_value` keyword; use `air_value = 0`
-  for solvers that do not accept NaN).
+  On the rectilinear grid, air cells (`Phases = 0`) have Vp = Vs = Rho = Temperature = NaN (`air_value` keyword; use
+  `air_value = 0` for solvers that do not accept NaN); the curvilinear mesh has no air nodes.
 - **Surface dataset**: topography, bedrock elevation, Quaternary thickness, tectonic units
   (3 levels), model interfaces and Moho depths. Legend of all codes in `data/output/legend.csv`.
-
-## Curvilinear mesh
-
-The model can also be built on a curvilinear mesh of GeophysicalModelGenerator (`curvilinear_grid`, GMG ≥ 0.10.2), whose
-grid levels follow the topography, the base of the consolidated sediments, the Conrad and the European Moho
-(`valais_curvilinear_maps`, `build_valais_curvilinear_model`, `examples/build_valais_curvilinear_model.jl`). It has no air
-nodes, and the Quaternary fill lies in a 25 m layer that follows the topography. The gravity inversion runs on it as well
-(`curvilinear_density_model`, `curvilinear_bouguer_contrast`, `invert_density(Grid, ...)`). The whole analysis on this
-mesh, with its figures, is in [curvilinear/](curvilinear/README.md).
-
-![The model on the curvilinear mesh](curvilinear/figures/overview.jpg)
 
 ## Usage
 
@@ -135,7 +151,7 @@ mesh, with its figures, is in [curvilinear/](curvilinear/README.md).
 git clone https://github.com/tduretz/GeoValaisWallis3D.jl.git GeoValaisWallis3D   # see the note below
 cd GeoValaisWallis3D
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
-julia --project=. -t auto examples/build_valais_model.jl
+julia --project=. -t auto examples/rectilinear/build_valais_model.jl    # or examples/curvilinear/build_valais_model.jl
 ```
 
 The package and module are called `GeoValaisWallis3D`; only the repository has the `.jl`. Clone it into a directory
@@ -144,19 +160,12 @@ own checkout (`path = "../GeoValaisWallis3D"`).
 
 ```julia
 using GeoValaisWallis3D            # re-exports GeophysicalModelGenerator
-res = build_valais_model(valais_region(); dx = 0.25, dz_fine = 0.025)
-res.model      # CartData: Phases, Vp, Vs, Rho, Temperature, MorclesUnit
-res.surface    # CartData: surface maps
-res.z          # vertical levels (km)
+res = build_valais_model(valais_region(); dx = 0.25, dz_fine = 0.025)       # rectilinear grid
+cur = build_valais_curvilinear_model(valais_region(); dx = 0.25)            # curvilinear mesh
 ```
 
-A model too large for one process can be built block by block (e.g. one block per MPI rank): the 2D maps once, then any
-range of columns, identical to that part of the whole model.
-
-```julia
-maps = valais_model_maps(valais_region(); dx = 0.05, dz_fine = 0.025)   # axes x, y, z; interfaces; Morcles model
-block = valais_model_block(maps, 1:650, 1:475; air_value = 0)            # Phases, Vp, Vs, Rho, MorclesUnit of these columns
-```
+Building a model block by block, and the options of each grid: [figures/rectilinear/README.md](figures/rectilinear/README.md),
+[figures/curvilinear/README.md](figures/curvilinear/README.md).
 
 Open `data/output/*.vts` in ParaView. To hide the air: colour by e.g. `Vs`, open the Color Map Editor,
 click the gear icon (advanced properties) and set **NaN Opacity** to 0 — or apply a Threshold on `Phases` ≥ 1. The `unzip` command is needed for the 3D-ALPS-TR and Morcles archives.
@@ -220,16 +229,13 @@ replace a site study.
 ## Figures
 
 ```bash
-julia --project=docs -e 'using Pkg; Pkg.instantiate()'
-julia --project=docs -t auto docs/make_figures.jl                    # all, ~2 min with cached data
-julia --project=docs -t auto docs/make_figures.jl subsoil sections   # some of: overview layers sections subsoil gravity density morcles
+julia --project=figures -e 'using Pkg; Pkg.instantiate()'
+GVW_BACKEND=metal julia --project=figures -t auto figures/rectilinear/make_figures.jl   # writes figures/rectilinear/*.jpg
+GVW_BACKEND=metal julia --project=figures -t auto figures/curvilinear/make_figures.jl   # writes figures/curvilinear/*.jpg
 ```
 
-`density` runs the inversion itself. With `GVW_BACKEND=metal` it runs on the Apple GPU (Metal, Float32), otherwise on
-the CPU (Float64, much slower). The result is cached in `data/output/density_inversion_figure.jls`; delete that file to
-run the inversion again. The `docs` environment adds CairoMakie and Metal to the package. It writes `docs/figures/*.jpg` (converted with ImageMagick's
-`magick` to keep each file around 1 MB). The figures of the curvilinear mesh are made by `curvilinear/make_figures.jl`
-(see [curvilinear/README.md](curvilinear/README.md)).
+The `figures` environment adds CairoMakie, GLMakie and Metal to the package. The options of each script are in its
+folder's README; images are converted to JPEG with ImageMagick's `magick`.
 
 ## Tests
 

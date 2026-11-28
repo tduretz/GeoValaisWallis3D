@@ -46,7 +46,7 @@ export density_on_grid, bouguer_contrast, invert_density, interpolate_nodes
 export SUBSOIL_CLASSES, download_subsoil_classes, subsoil_release, subsoil_classes_on_grid, subsoil_map, write_subsoil_paraview
 export download_spectral_microzonation, spectral_microzonation_on_grid
 export CURVILINEAR_SURFACES, meshing_surfaces, curvilinear_levels, valais_curvilinear_maps, build_valais_curvilinear_model
-export curvilinear_density_model, curvilinear_bouguer_contrast
+export curvilinear_density_model, curvilinear_bouguer_contrast, curvilinear_heights, layer_cells, interpolate_curvilinear
 
 """
     datadir(parts...)

@@ -1,8 +1,8 @@
 # Build the Valais/Wallis model on a curvilinear mesh (GeophysicalModelGenerator curvilinear_grid) and write ParaView files.
-#     julia --project=. -t auto examples/build_valais_curvilinear_model.jl
+#     julia --project=. -t auto examples/curvilinear/build_valais_model.jl
 # The grid levels follow the topography, the base of the consolidated sediments, the Conrad and the European Moho (see
 # meshing_surfaces); the Quaternary fill lies in the top `fine_depth` km, meshed with dz[1]. Same data as
-# examples/build_valais_model.jl (cached in data/raw/). Output: data/output/valais_curvilinear_model.vts (≈ 57 M nodes,
+# examples/rectilinear/build_valais_model.jl (cached in data/raw/). Output: data/output/valais_curvilinear_model.vts (≈ 57 M nodes,
 # several GB: use a larger dx for a quick look) and valais_curvilinear_surfaces.vts.
 using GeoValaisWallis3D
 
