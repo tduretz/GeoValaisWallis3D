@@ -189,6 +189,22 @@ using Test, Statistics
         @test !(PHASES.air in P)
         k = L.levels.moho
         @test all(P[:, :, k] .== PHASES.mantle) && all(P[:, :, k + 1] .== PHASES.lower_crust)
+        # heights made per block of columns = that part of the whole mesh; model blocks without global heights
+        mapsS = merge(maps, (; z = nothing, surfaces = S, nz = L.nz, spacing = :uniform, min_thickness = 0.001))
+        @test curvilinear_heights(mapsS, 2:4, 3:5) == z[2:4, 3:5, :]
+        @test valais_model_block(mapsS, 2:4, 3:5).Phases == P[2:4, 3:5, :]
+        # a node exactly on the Moho: the mantle below it by default, the lower crust above it with interface_above
+        @test all(valais_model_block(merge(maps, (; interface_above = true))).Phases[:, :, k] .== PHASES.lower_crust)
+        # surfaces parallel to the topography, without base_cs (wave meshes)
+        S2 = meshing_surfaces(I, -60.0; depths = (1.0, 3.0), interfaces = (:conrad, :moho))
+        @test keys(S2) == (:topography, :fine_base, :below_2, :conrad, :moho, :bottom)
+        @test S2.below_2 ≈ topo .- 3.0
+        @test_throws ArgumentError meshing_surfaces(I, -60.0; depths = (1.0, 20.0), interfaces = (:conrad, :moho))
+        L2 = curvilinear_levels(sbp_nodes(0.0, 5.0, 13), sbp_nodes(0.0, 4.0, 13), meshing_surfaces(
+                 (; topo = fill(1.0, 13, 13), base_cs = fill(-1.0, 13, 13), conrad = fill(-15.0, 13, 13), moho_eu = fill(-35.0, 13, 13)),
+                 -60.0; depths = (1.0,), interfaces = (:conrad, :moho)); dz = (0.1, 1.0, 2.0, 5.0), spacing = :sbp)
+        @test all(>=(12), L2.nz) && L2.z[1, 1, L2.levels.moho] ≈ -35.0
+
         # Bouguer contrast: topography masses against 2670 kg/m³; no contrast in the uniform mantle below the deepest Moho
         c = curvilinear_bouguer_contrast(z, valais_model_block(maps).Rho)
         @test all(abs.(c.contrast[z .< -44.5]) .< 1e-9)

@@ -9,18 +9,20 @@ Names of the surfaces followed by the levels of the curvilinear mesh, from the t
 const CURVILINEAR_SURFACES = (:topography, :fine_base, :base_cs, :conrad, :moho, :bottom)
 
 """
-    meshing_surfaces(I, zbot; fine_depth = 1.0, fine_min = 0.25) -> NamedTuple of matrices (km)
+    meshing_surfaces(I, zbot; fine_depth = 1.0, fine_min = 0.25, depths = (fine_depth,),
+                     interfaces = (:base_cs, :conrad, :moho)) -> NamedTuple of matrices (km)
 
 The surfaces that the levels of the curvilinear mesh follow, from the top to the bottom, from the interfaces `I` of
 [`model_interfaces`](@ref):
 - `topography`: the free surface (swissALTIRegio);
-- `fine_base`: the base of the near-surface layer with fine vertical spacing, `fine_depth` below the topography, or
-  halfway to the base of the consolidated sediments where that is shallower, but at least `fine_min` below the
-  topography (so that the cells of this layer are never thinner than `fine_min / nz`). It is not a geological
-  interface: it keeps the Quaternary fill of the valleys (at most ≈ 1 km thick) in the finely spaced layer;
-- `base_cs`: base of the consolidated sediments (3D-ALPS / swissBEDROCK);
-- `conrad`: upper / lower crust boundary;
-- `moho`: European Moho (Spada et al. 2013);
+- `fine_base` (and `below_2`, `below_3`, … for more `depths`): surfaces parallel to the topography, `depths` below it,
+  bounding near-surface layers with their own vertical spacing. They are not geological interfaces: the first keeps the
+  Quaternary fill of the valleys (at most ≈ 1 km thick) in the finely spaced layer. With `:base_cs` among the
+  `interfaces`, surface `i` of `n` lies at most the fraction `i / (n + 1)` of the way down to the base of the
+  consolidated sediments, but at least `i fine_min` below the topography (so that cells of these layers are never
+  thinner than `fine_min / nz`);
+- the geological `interfaces`, any of `base_cs` (base of the consolidated sediments, 3D-ALPS / swissBEDROCK), `conrad`
+  (upper / lower crust boundary) and `moho` (European Moho, Spada et al. 2013);
 - `bottom`: the flat base of the model at `zbot`.
 
 These interfaces are continuous over the region and do not cross, so each is a grid surface. The base of the
@@ -29,11 +31,33 @@ are not: they are material boundaries inside the layers, as on the rectilinear g
 pinch out (crystalline massifs), the layers above `base_cs` keep a thickness of at least `fine_min` (plus
 `min_thickness` per cell, see [`curvilinear_levels`](@ref)): the meshed `base_cs` then lies up to ≈ 0.3 km below the
 interface, which the material rules still honour at every node.
+
+Without `:base_cs`, the surfaces parallel to the topography must stay above the Conrad (or the next interface): an error
+is thrown where they do not. This is the choice for wave simulations (SeismicWavePC), whose vertical spacing should
+change only gradually between layers that are not separated by a material jump along the whole width.
 """
-function meshing_surfaces(I, zbot; fine_depth = 1.0, fine_min = 0.25)
-    fine_base = I.topo .- max.(min.(fine_depth, (I.topo .- I.base_cs) ./ 2), fine_min)
-    return (; topography = I.topo, fine_base, base_cs = I.base_cs, conrad = I.conrad, moho = I.moho_eu,
-            bottom = fill(Float64(zbot), size(I.topo)))
+function meshing_surfaces(I, zbot; fine_depth = 1.0, fine_min = 0.25, depths = (fine_depth,),
+                          interfaces = (:base_cs, :conrad, :moho))
+    all(in((:base_cs, :conrad, :moho)), interfaces) || throw(ArgumentError("interfaces: any of :base_cs, :conrad, :moho"))
+    issorted(depths) && all(>(0), depths) || throw(ArgumentError("depths must be positive and increasing"))
+    n = length(depths)
+    names = [i == 1 ? :fine_base : Symbol("below_", i) for i in 1:n]
+    helper = map(1:n) do i
+        if :base_cs in interfaces
+            I.topo .- max.(min.(depths[i], (I.topo .- I.base_cs) .* (i / (n + 1))), i * fine_min)
+        else
+            I.topo .- depths[i]
+        end
+    end
+    geo = (; base_cs = I.base_cs, conrad = I.conrad, moho = I.moho_eu)
+    inter = [k for k in (:base_cs, :conrad, :moho) if k in interfaces]
+    if !isempty(inter) && !(:base_cs in interfaces)
+        below = geo[first(inter)]
+        bad = count(helper[end] .<= below)
+        bad == 0 || throw(ArgumentError("the surface $(depths[end]) km below the topography lies below the $(first(inter)) in $(bad) columns"))
+    end
+    return NamedTuple{(:topography, names..., inter..., :bottom)}((I.topo, helper..., (geo[k] for k in inter)...,
+                                                                   fill(Float64(zbot), size(I.topo))))
 end
 
 # CartData surface of size (nx, ny, 1) for curvilinear_grid
@@ -44,50 +68,103 @@ function _surface(x, y, h)
 end
 
 """
-    curvilinear_levels(x, y, S; dz = (0.025, 0.1, 0.5, 0.5, 1.0), spacing = :uniform, min_thickness = 0.001)
+    curvilinear_levels(x, y, S; dz = (0.025, 0.1, 0.5, 0.5, 1.0), nz = nothing, spacing = :uniform, min_thickness = 0.001)
         -> (; z, nz, levels)
 
 The heights `z[i, j, k]` (km, increasing with `k`) of the curvilinear mesh with the columns `x`, `y` whose levels follow
 the surfaces `S` of [`meshing_surfaces`](@ref), made by GeophysicalModelGenerator's `curvilinear_grid`. Layer `l`
-(between surface `l` and `l + 1`) has `nz[l]` cells in every column, such that the spacing is `dz[l]` where the layer
-is thickest. `levels` gives the level index of every surface. `spacing = :sbp` places the points of each layer at the
-nodes of a summation-by-parts grid (SeismicWavePC.jl). Where a layer pinches out, the surface below is moved down such
-that each of its cells is at least `min_thickness` (km) thick.
+(between surface `l` and `l + 1`) has `nz[l]` cells in every column: given, or such that the spacing is `dz[l]` where
+the layer is thickest. `levels` gives the level index of every surface. `spacing = :sbp` places the points of each
+layer at the nodes of a summation-by-parts grid (SeismicWavePC.jl). Where a layer pinches out, the surface below is
+moved down such that each of its cells is at least `min_thickness` (km) thick. Every column is made on its own: the
+heights of a part of the columns (with the same `nz`) equal that part of the whole mesh.
 """
-function curvilinear_levels(x, y, S; dz = (0.025, 0.1, 0.5, 0.5, 1.0), spacing = :uniform, min_thickness = 0.001)
+function curvilinear_levels(x, y, S; dz = (0.025, 0.1, 0.5, 0.5, 1.0), nz = nothing, spacing = :uniform, min_thickness = 0.001)
     surfs = values(S)
-    length(dz) == length(surfs) - 1 || throw(ArgumentError("give one dz per layer ($(length(surfs) - 1))"))
-    min_cells = spacing == :sbp ? 12 : 1
-    nz = [max(min_cells, ceil(Int, maximum(surfs[l] .- surfs[l + 1]) / dz[l] - 1e-9)) for l in eachindex(dz)]
+    if nz === nothing
+        length(dz) == length(surfs) - 1 || throw(ArgumentError("give one dz per layer ($(length(surfs) - 1))"))
+        nz = layer_cells(S, dz; spacing)
+    end
+    length(nz) == length(surfs) - 1 || throw(ArgumentError("give one nz per layer ($(length(surfs) - 1))"))
     G = curvilinear_grid(x, y, Tuple(_surface(x, y, s) for s in surfs), nz; spacing, min_thickness)
     z = G.z.val
     levels = NamedTuple{keys(S)}(Tuple(size(z, 3) .- cumsum([0; nz])))
-    return (; z, nz, levels)
+    return (; z, nz = collect(nz), levels)
+end
+
+"Cells per layer of the surfaces `S`, such that the vertical spacing is `dz[l]` where layer `l` is thickest."
+function layer_cells(S, dz; spacing = :uniform)
+    surfs = values(S)
+    min_cells = spacing == :sbp ? 12 : 1
+    return [max(min_cells, ceil(Int, maximum(surfs[l] .- surfs[l + 1]) / dz[l] - 1e-9)) for l in eachindex(dz)]
+end
+
+# bilinear interpolation of the raster A (cell centres xr, yr; clamped at the edges) at the points x, y
+function _bilinear_raster(xr, yr, A, x, y)
+    ix(v, g) = (q = clamp(searchsortedlast(g, v), 1, length(g) - 1); (q, clamp((v - g[q]) / (g[q + 1] - g[q]), 0, 1)))
+    return [(((p, s), (q, t)) = (ix(a, xr), ix(b, yr));
+             (1 - s) * (1 - t) * A[p, q] + s * (1 - t) * A[p + 1, q] + (1 - s) * t * A[p, q + 1] + s * t * A[p + 1, q + 1])
+            for a in x, b in y]
 end
 
 """
     valais_curvilinear_maps(r = valais_region(); dx = 0.25, dz = (0.025, 0.1, 0.5, 0.5, 1.0), fine_depth = 1.0,
-                            spacing = :uniform, min_thickness = 0.001, morcles = true) -> NamedTuple
+                            fine_min = 0.25, depths = (fine_depth,), interfaces = (:base_cs, :conrad, :moho),
+                            columns = :uniform, dx_data = dx, spacing = :uniform, min_thickness = 0.001,
+                            interface_above = false, heights = true, morcles = true) -> NamedTuple
 
-The 3D model on a curvilinear mesh, as maps: the column axes `x`, `y` (LV95, km, spacing `dx`), the heights `z` of the
-mesh (an array `(nx, ny, nz)`, see [`curvilinear_levels`](@ref)), the layer `interfaces` ([`model_interfaces`](@ref)),
-the meshed `surfaces` ([`meshing_surfaces`](@ref)), the level of each surface (`levels`), the cells per layer (`nz`)
-and the Morcles model. The default `dz` gives 25 m in the near-surface layer (`fine_depth` km), 100 m down to the base
-of the consolidated sediments, 500 m in the crust and 1 km in the mantle.
+The 3D model on a curvilinear mesh, as maps: the column axes `x`, `y` (LV95, km), the heights `z` of the mesh (an array
+`(nx, ny, nz)`, see [`curvilinear_levels`](@ref)), the layer `interfaces` ([`model_interfaces`](@ref)), the meshed
+`surfaces` ([`meshing_surfaces`](@ref) with `fine_depth`, `fine_min`, `depths`, `interfaces`), the level of each
+surface (`levels`), the cells per layer (`nz`) and the Morcles model. The default `dz` gives 25 m in the near-surface
+layer (`fine_depth` km), 100 m down to the base of the consolidated sediments, 500 m in the crust and 1 km in the mantle.
+
+- `columns = :uniform`: the columns are the cell centres of the rasters at spacing `dx`. `columns = :sbp`: the nodes of
+  a summation-by-parts grid from edge to edge of the region (`sbp_nodes`, spacing `dx` inside), as SeismicWavePC's
+  curvilinear solver needs; the rasters are read at `dx_data` and interpolated bilinearly onto the columns.
+- `interface_above = true`: a node exactly on the base of the consolidated sediments, the Conrad or the Moho takes the
+  material above it (SeismicWavePC's convention for the interfaces of a curvilinear mesh); by default the one below.
+- `heights = false`: `z` is `nothing` (for meshes too large for one process): [`valais_model_block`](@ref) and
+  [`curvilinear_heights`](@ref) make the heights of the columns they need.
 
 [`valais_model_block`](@ref) fills any part of it with the same rules as the rectilinear grid; the mesh has no air
 nodes: the top level is the topography.
 """
 function valais_curvilinear_maps(r::ValaisRegion = valais_region(); dx = 0.25, dz = (0.025, 0.1, 0.5, 0.5, 1.0),
-                                 fine_depth = 1.0, fine_min = 0.25, spacing = :uniform, min_thickness = 0.001, morcles = true)
-    x, y, topo = fetch_topography(r; dx = dx)
-    _, _, _, tmud = fetch_swissbedrock(r; dx = dx)
+                                 fine_depth = 1.0, fine_min = 0.25, depths = (fine_depth,), interfaces = (:base_cs, :conrad, :moho),
+                                 columns = :uniform, dx_data = dx, spacing = :uniform, min_thickness = 0.001,
+                                 interface_above = false, heights = true, morcles = true)
+    columns in (:uniform, :sbp) || throw(ArgumentError("columns = :uniform or :sbp"))
+    if columns === :uniform
+        x, y, topo = fetch_topography(r; dx = dx)
+        _, _, _, tmud = fetch_swissbedrock(r; dx = dx)
+    else
+        xr, yr, tr = fetch_topography(r; dx = dx_data)
+        _, _, _, qr = fetch_swissbedrock(r; dx = dx_data)
+        x = sbp_nodes(r.E[1], r.E[2], round(Int, (r.E[2] - r.E[1]) / dx) + 1)
+        y = sbp_nodes(r.N[1], r.N[2], round(Int, (r.N[2] - r.N[1]) / dx) + 1)
+        topo = _bilinear_raster(xr, yr, replace(tr, NaN => 0.0), x, y)
+        tmud = _bilinear_raster(xr, yr, qr, x, y)
+    end
     I = model_interfaces(x, y, topo, tmud)
-    S = meshing_surfaces(I, r.z[1]; fine_depth, fine_min)
-    L = curvilinear_levels(x, y, S; dz, spacing, min_thickness)
-    @info "Curvilinear mesh: $(length(x)) × $(length(y)) × $(size(L.z, 3)) = $(round(length(L.z) / 1e6, digits = 1)) M nodes; cells per layer $(L.nz)"
-    return (; x, y, z = L.z, interfaces = I, surfaces = S, levels = L.levels, nz = L.nz,
-            morcles = morcles ? read_morcles() : nothing)
+    S = meshing_surfaces(I, r.z[1]; fine_depth, fine_min, depths, interfaces)
+    nz = layer_cells(S, dz; spacing)
+    L = heights ? curvilinear_levels(x, y, S; nz, spacing, min_thickness) : nothing
+    levels = NamedTuple{keys(S)}(Tuple(sum(nz) + 1 .- cumsum([0; nz])))
+    @info "Curvilinear mesh: $(length(x)) × $(length(y)) × $(sum(nz) + 1) = $(round(length(x) * length(y) * (sum(nz) + 1) / 1e6, digits = 1)) M nodes; cells per layer $(nz)"
+    return (; x, y, z = heights ? L.z : nothing, interfaces = I, surfaces = S, levels, nz, spacing, min_thickness,
+            interface_above, morcles = morcles ? read_morcles() : nothing)
+end
+
+"""
+    curvilinear_heights(maps, ix = eachindex(maps.x), iy = eachindex(maps.y)) -> Array (length(ix), length(iy), nz)
+
+The heights of the curvilinear mesh of [`valais_curvilinear_maps`](@ref) in the columns `maps.x[ix]`, `maps.y[iy]`,
+made from the meshed surfaces of these columns: identical to that part of the heights of the whole mesh.
+"""
+function curvilinear_heights(maps, ix = eachindex(maps.x), iy = eachindex(maps.y))
+    S = map(s -> s[ix, iy], maps.surfaces)
+    return curvilinear_levels(maps.x[ix], maps.y[iy], S; nz = maps.nz, spacing = maps.spacing, min_thickness = maps.min_thickness).z
 end
 
 """
@@ -209,4 +286,39 @@ function curvilinear_bouguer_contrast(z, rho; rho_topo = RHO_BOUGUER, dzbin = 0.
     end
     contrast = [z[c] > 0 ? rho[c] - rho_topo : rho[c] - ref(z[c]) for c in CartesianIndices(z)]
     return (; contrast, zref, rhoref)
+end
+
+"""
+    interpolate_curvilinear(xg, yg, Zg, F, x, y, Z) -> array of size(Z)
+
+The field `F` at the nodes of a curvilinear mesh (columns `xg`, `yg`, heights `Zg`, top level = topography) at the nodes of
+another one (columns `x`, `y`, heights `Z`, top level = topography), e.g. the density change of
+[`curvilinear_density_model`](@ref) on the mesh of a wave simulation. Bilinear between the four nearest columns
+(clamped at the edges), linear along each of them, at the depth below the topography of the target node: the
+surface of both meshes, and the material under it, stay aligned. Below the bottom or above the top of a column `F` is
+taken constant.
+"""
+function interpolate_curvilinear(xg, yg, Zg, F, x, y, Z)
+    ix(v, g) = (q = clamp(searchsortedlast(g, v), 1, length(g) - 1); (q, clamp((v - g[q]) / (g[q + 1] - g[q]), 0, 1)))
+    function colinterp(i, j, zq)
+        c = view(Zg, i, j, :)
+        zq <= c[1] && return F[i, j, 1]
+        zq >= c[end] && return F[i, j, end]
+        k = clamp(searchsortedlast(c, zq), 1, length(c) - 1)
+        w = (zq - c[k]) / (c[k + 1] - c[k])
+        return (1 - w) * F[i, j, k] + w * F[i, j, k + 1]
+    end
+    out = zeros(eltype(F), size(Z))
+    Threads.@threads for j in eachindex(y)
+        q, t = ix(y[j], yg)
+        for i in eachindex(x)
+            p, s = ix(x[i], xg)
+            for k in axes(Z, 3)
+                d = Z[i, j, end] - Z[i, j, k]                      # depth below the topography
+                out[i, j, k] = (1 - s) * (1 - t) * colinterp(p, q, Zg[p, q, end] - d) + s * (1 - t) * colinterp(p + 1, q, Zg[p + 1, q, end] - d) +
+                               (1 - s) * t * colinterp(p, q + 1, Zg[p, q + 1, end] - d) + s * t * colinterp(p + 1, q + 1, Zg[p + 1, q + 1, end] - d)
+            end
+        end
+    end
+    return out
 end
